@@ -1,0 +1,7 @@
+---
+# Rename this file to "default-timeframe.md" to activate.
+# Documentation: https://docs.cube.dev/admin/ai/rules
+
+type: always
+---
+When the user asks about recent activity without specifying a timeframe, default to the last 100 days.

@@ -1,0 +1,13 @@
+---
+# Rename this file to "monthly-revenue.md" to activate.
+# Documentation: https://docs.cube.dev/admin/ai/certified-queries
+
+description: "Monthly revenue breakdown"
+user_request: "Show me revenue by month"
+---
+SELECT
+  DATE_TRUNC('month', created_at) AS month,
+  MEASURE(line_items_sum_price) AS revenue
+FROM orders
+GROUP BY 1
+ORDER BY 1

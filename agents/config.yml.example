@@ -1,0 +1,12 @@
+# Rename this file to "config.yml" to activate.
+
+# Configures the AI agent for this Cube deployment.
+# Documentation: https://docs.cube.dev/admin/ai
+
+runtime: plain
+memory_mode: space
+
+# Optional: limit which views the agent can query.
+# accessible_views:
+#   - orders_view
+#   - customers_view

@@ -1,0 +1,5 @@
+# Python packages specified in this file will be automatically installed.
+# You can use these packages in the 'cube.py' file and dynamic data models.
+# Learn more: https://docs.cube.dev/reference/configuration/config
+
+cube_dbt
