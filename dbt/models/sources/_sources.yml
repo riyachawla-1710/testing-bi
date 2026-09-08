@@ -109,9 +109,9 @@ sources:
   # ---------------------------------------------------------------------------
   # NOT IN POSTGRES YET.
   #
-  # Six objects that live only in Snowflake. Each needs a decision, and until
-  # it has one, `dbt build` cannot complete against Postgres alone. Listed
-  # here with its disposition rather than hidden.
+  # Four objects that do not exist in Postgres yet. Each needs a decision, and
+  # until it has one, `dbt build` cannot complete against Postgres alone.
+  # Listed here with its disposition rather than hidden.
   #
   # The schema below is a placeholder - override it per environment with
   # `--vars` or a profile target once each object has a real home.

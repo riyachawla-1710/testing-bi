@@ -1,4 +1,4 @@
-# charger_bi — dbt port of the Snowflake revenue layer
+# charger_bi — the revenue layer, in dbt on PostgreSQL
 
 dbt models that reproduce the Snowflake views behind the **Revenue Performance
 Analysis** dashboard, so the logic lives in this repo instead of inside
@@ -65,16 +65,18 @@ BI.ANALYTICS (not ported yet)                    │
 ## What is NOT ported
 
 Declared as sources in `models/sources/_sources.yml` so the DAG stays honest.
-Each is its own piece of work:
+Four objects left. Each is its own piece of work:
 
 | Object | Size | Why it matters |
 |---|---|---|
-`ORDERLANEREVENUEMAPPING` | table | The corpus all ten lane-rate models compute from. Port this and the layer is fully local. |
+`ORDERLANEREVENUEMAPPING` | table | The corpus all ten lane-rate models compute from. Port this and the layer is fully local. **Biggest single win left.** |
 `ORDERCHARGES_BS_VW` | 7,532 chars | **Reads `OPSYNC.BILLINGSYSTEM` — not Postgres.** Blocks the cascade's "BILLING SYSTEM" step. |
-`GLOBALBROKERAGEANALYSIS` | 17,596 chars | Feeds the brokerage P&L |
-`ORDEREXTRACHARGES_VW` | 5,375 chars | Extra-charge detail strings |
-`TONUORDERSBI_VW`, `KEURIG_SHUNTINGREVENUE_VW` | small | Cascade inputs |
-`ORDERCARTAPORTELIFECYCLE` | table | TS match rates |
+`GLOBALBROKERAGEANALYSIS` | 17,596 chars | Feeds the brokerage P&L. **Not a view port** — needs a whole new contract/trip costing tier: 11 new source tables plus `EVENTFORPROBILL` and `MARKETPLACE_SPOTRATE_VW`. |
+`ORDERCARTAPORTELIFECYCLE` | table | TS match rates. **Not a view port** — see the section below. |
+
+`BOCDAILYFXRATES` is separate: it is fed from Workday, so it needs a landing
+decision, not SQL. Either land it in Postgres or pull from the Bank of Canada
+valet API.
 
 ## The one deliberate change
 
@@ -137,9 +139,10 @@ An earlier version carried `database: CHARGERFLEET` — Snowflake's three-part
 naming. That has been removed. `order` and `user` are reserved words in
 Postgres too, so those two tables set `quoting: identifier: true`.
 
-Snowflake is reference only. Read view DDL from it, then delete the connection.
-Validate the port by comparing **final numbers** (`analyses/`), not by running
-dbt against Snowflake — the source definitions no longer resolve there.
+Snowflake was read **once**, with `GET_DDL`, to recover the view logic. That
+logic is now SQL in this project and the connection is not needed again.
+Validate by comparing **final numbers** (`analyses/`), not by running dbt
+against Snowflake — the source definitions no longer resolve there.
 
 ### Seeds
 
@@ -153,37 +156,29 @@ several id columns, and several `userid` values had trailing spaces.
 
 Grouped under the `pending` source so the DAG is explicit rather than silent.
 Override its schema with `--vars '{pending_schema: your_schema}'` as each object
-lands.
-
-| Object | Portable? | Notes |
-|---|---|---|
-`orderlanerevenuemapping` | **Yes** | The corpus behind all ten lane-rate models. **Biggest single win left** — port it and that whole layer is local. |
-`globalbrokerageanalysis` | Yes | 17,596 chars. Only the Revenue Execution dashboards need it. |
-`orderextracharges_vw` | Yes | 5,375 chars. |
-`labatt_orderrevenue` | Yes | Small — may belong as a seed. |
-`tonuordersbi_vw`, `keurig_shuntingrevenue_vw`, `ordercartaportelifecycle` | Yes | Small. |
-`ordercharges_bs_vw` | **No** | Reads `OPSYNC.BILLINGSYSTEM`. Needs OPSYNC landed, or the cascade step dropped. |
-`bocdailyfxrates` | **No** | Workday. Blocks every currency conversion. Land it in Postgres or pull from the Bank of Canada valet API. |
-
-Only the last two need a decision beyond writing SQL.
+lands. Four entries remain; see **What is NOT ported** above.
 
 ## Running it
 
+There is one target: Postgres. `dbt` cannot be pointed at Snowflake — the
+source definitions are Postgres-shaped (plain schemas, no `database:` key) and
+will not resolve there. The port is validated by comparing **final numbers**,
+not by running the same project against both warehouses.
+
 ```bash
 dbt deps
+dbt seed                                          # sales_report_access
+dbt build                                         # builds into `reporting`
 
-# 1. Snowflake first — this is how you prove the port
-dbt build --target snowflake
-dbt compile --select validate_against_snowflake   # then run in Snowsight
+# Validate: compile these, then run the SQL in Snowsight against the live views
+dbt compile --select validate_against_snowflake
 dbt compile --select validate_dashboard_numbers   # expect 4,096 / 7,450,826.44
-
-# 2. Postgres once Snowflake ties out
-dbt build --target postgres
 ```
 
-`profiles.example.yml` has both targets. **dbt writes tables, so the Postgres
-target needs a writable instance — not the AlloyDB read pool.** The read pool is
-for Cube to read from.
+`profiles.example.yml` has a `postgres` target and an optional per-developer
+`dev` target. **dbt writes tables, so it needs a writable instance — not the
+AlloyDB read pool.** The read pool is what Cube reads from. Two different
+connections on purpose.
 
 ## Postgres portability
 

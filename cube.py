@@ -1,22 +1,19 @@
 # Configuration options: https://docs.cube.dev/reference/configuration/config
 #
 # -----------------------------------------------------------------------------
-# WHY THIS FILE CHANGED
+# ONE DATA SOURCE: PostgreSQL (AlloyDB).
 #
-# The previous version hardcoded `'type': 'duckdb'` and loaded Cube's tutorial
-# CSVs from S3. A driver_factory in cube.py OVERRIDES the data source
-# connections configured in the Cube Cloud UI - so every query, including
-# Source SQL tabs, was answered by an in-memory DuckDB with the tutorial data
-# attached. That is why `select * from duckdb_databases()` returned
-# memory/system/temp, and why `current_account()` and BI.ANALYTICS were not
-# found.
+# A driver_factory in cube.py OVERRIDES the data source connections configured
+# in the Cube Cloud UI. So this file is the single place that decides what Cube
+# talks to. It talks to Postgres, and only Postgres.
 #
-# This version routes by data_source instead:
-#     default    -> PostgreSQL (AlloyDB read pool)   <- build cubes on this
-#     snowflake  -> Snowflake                        <- reference only, temporary
+# There is deliberately no Snowflake branch. Snowflake was read once with
+# GET_DDL to recover the view logic; that logic now lives in /dbt as SQL. If a
+# cube ever needs a `data_source:` other than `default`, that is a bug - it
+# means something is being built on a source we are removing.
 #
-# A cube picks its source with `data_source: snowflake`; anything without a
-# data_source uses `default`.
+# Every cube either declares `data_source: default` or declares nothing, and
+# both land here.
 # -----------------------------------------------------------------------------
 
 import os
@@ -25,22 +22,6 @@ from cube import config
 
 @config('driver_factory')
 def driver_factory(ctx: dict) -> dict:
-    data_source = ctx.get('dataSource', 'default')
-
-    if data_source == 'snowflake':
-        # Reference only, for diffing ported models against the original views.
-        # Delete this branch once the port is validated - otherwise someone
-        # will build a cube on it and recreate the dependency we are removing.
-        return {
-            'type': 'snowflake',
-            'account': os.environ['SNOWFLAKE_ACCOUNT'],
-            'username': os.environ['SNOWFLAKE_USER'],
-            'password': os.environ['SNOWFLAKE_PASSWORD'],
-            'database': os.getenv('SNOWFLAKE_DATABASE', 'BI'),
-            'warehouse': os.environ['SNOWFLAKE_WAREHOUSE'],
-            'role': os.getenv('SNOWFLAKE_ROLE', 'DATA_ENGINEER'),
-        }
-
     # AlloyDB read pool. Reads only - pre-aggregations materialise into
     # Cube Store, never back into Postgres, so a read replica is fine.
     return {
