@@ -168,6 +168,16 @@ not by running the same project against both warehouses.
 ```bash
 dbt deps
 dbt seed                                          # sales_report_access
+
+# A FULL `dbt build` CANNOT SUCCEED YET. fct_order_revenue depends on three
+# things that are not in Postgres: bocdailyfxrates (Workday),
+# orderlanerevenuemapping, and globalbrokerageanalysis.
+#
+# Build everything that does not touch them - 10 models. This is the step that
+# proves ~1,500 lines of Snowflake-to-Postgres SQL translation actually runs:
+dbt build --exclude "source:pending+" "source:fx+"
+
+# Once all three have landed:
 dbt build                                         # builds into `reporting`
 
 # Validate: compile these, then run the SQL in Snowsight against the live views
