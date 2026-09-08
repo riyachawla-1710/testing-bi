@@ -129,17 +129,9 @@ sources:
       - name: keurig_shuntingrevenue_vw
         description: Keurig shunting rates, last step of the cascade. TODO port (485 chars).
 
-      # --- the lane rate benchmark layer -----------------------------------
-      # Ten views, all derived from ORDERLANEREVENUEMAPPING, queried 1,085
-      # times each in 90 days. They are the fallback cascade in
-      # int_predicted_revenue. Porting them is the next clearly-scoped chunk.
-      - name: avg_revenue_by_customer_lane
-      - name: avg_revenue_by_lane
-      - name: avg_revenue_by_customer_statelane
-      - name: avg_revenue_by_statelane
-      - name: avg_revenue_by_countrylane
-      - name: avg_revenue_by_countrylane_direction
-      - name: avg_revenue_by_countrylane_roundtrip
-      - name: avg_revenue_by_direction
-      - name: avg_revenue_by_distinct_state_country_lane
-      - name: avg_revenue_by_distinct_country_lane
+      - name: orderlanerevenuemapping
+        description: >
+          The single table behind all ten lane-rate models. One row per
+          historically invoiced order with its lane, distance band, direction
+          and charges - the corpus the benchmarks are computed from.
+          TODO: port this too, and the lane-rate layer becomes fully local.

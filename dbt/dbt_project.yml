@@ -21,7 +21,12 @@ vars:
   # Order numbers below this are legacy/test data (from ORDERCHARGES_WITHADJUSTMENT_VW)
   min_order_number:                 10000000
   # Brokerage P&L only considers orders delivered on or after this date
+  # (this is the original Snowflake view's own rule - kept for fidelity)
   brokerage_start_date:             '2024-01-01'
+  # Reporting cutoff: fct_order_revenue keeps only orders delivered on or after
+  # this date. Raising it shrinks the mart; lowering it needs the upstream
+  # models to cover the extra period too.
+  reporting_start_date:             '2025-01-01'
 
 models:
   charger_bi:
@@ -30,6 +35,9 @@ models:
       +schema: staging
     intermediate:
       +schema: intermediate
+    intermediate:
+      lane_rates:
+        +schema: intermediate
     marts:
       +materialized: table
       +schema: marts

@@ -54,7 +54,8 @@ BI.ANALYTICS (not ported yet)                    │
 `int_order_charges_with_adjustment` | `ORDERCHARGES_WITHADJUSTMENT_VW` | Faithful, including the Labatt UNION ALL branch |
 `int_ts_hybrid_brokerage_pnl` | `TSHYBRIDBROKERAGEPANDL_VW` | Faithful; needs `globalbrokerageanalysis` |
 `int_opd_miles` | `OPD_MILES_VW` | Faithful. Reads only CHARGERFLEET |
-`int_predicted_revenue` | `PREDICTED_REVENUE_BS_VW` | Faithful; needs the lane-rate views |
+`int_predicted_revenue` | `PREDICTED_REVENUE_BS_VW` | Faithful |
+**10 × `int_lane_rate_by_*`** | the ten `AVG_REVENUE_BY_*` views | Faithful. `QUALIFY` and `MEDIAN` rewritten for Postgres |
 `fct_order_revenue` | the Tableau workbook's custom SQL | **One deliberate change — see below** |
 
 ## What is NOT ported
@@ -64,7 +65,7 @@ Each is its own piece of work:
 
 | Object | Size | Why it matters |
 |---|---|---|
-**10 × `AVG_REVENUE_BY_*`** | ~6,300 chars | The lane-rate benchmark layer — the fallback cascade in `int_predicted_revenue`. Next chunk of work. |
+`ORDERLANEREVENUEMAPPING` | table | The corpus all ten lane-rate models compute from. Port this and the layer is fully local. |
 `ORDERCHARGES_BS_VW` | 7,532 chars | **Reads `OPSYNC.BILLINGSYSTEM` — not Postgres.** Blocks the cascade's "BILLING SYSTEM" step. |
 `GLOBALBROKERAGEANALYSIS` | 17,596 chars | Feeds the brokerage P&L |
 `ORDEREXTRACHARGES_VW` | 5,375 chars | Extra-charge detail strings |
@@ -101,6 +102,25 @@ To reproduce the old behaviour while reconciling, set
 4. **Date guard.** `delivereddate <= today AND >= 2024-01-01 AND pickedupdate <=
    tomorrow` is defined in the workbook and applied to no sheet. A warn-level
    test in `_models.yml` surfaces what it would have caught.
+
+## The 2025-01-01 reporting cutoff
+
+`fct_order_revenue` keeps only orders delivered on or after
+`reporting_start_date` (set to **2025-01-01** in `dbt_project.yml`).
+
+⚠️ **This removes the 2024 series from the YoY dashboard tiles.** Your
+screenshot shows them comparing 2024 / 2025 / 2026. Lower the var if that
+comparison is still wanted — it is one line.
+
+The upstream models still cover from 2024-01-01, because that is the original
+Snowflake views' own rule. Raising `brokerage_start_date` to match would cut
+build time, at the cost of deviating from the source.
+
+Note the lane-rate models use **rolling 3- and 6-month windows relative to
+`current_date`** — deliberately, as a live benchmark. But it means predicted
+revenue for a *past* order changes as the window moves forward. Historical
+revenue is therefore not stable for un-invoiced orders, separately from the FX
+issue. Worth raising with the revenue owner.
 
 ## Running it
 

@@ -117,6 +117,11 @@ with base as (
       on b.orderguid = o.orderguid
 
     where o.customer not ilike '%TEST%'
+      -- Reporting cutoff. See reporting_start_date in dbt_project.yml.
+      -- NOTE: the YoY dashboard tiles compare 2024 / 2025 / 2026. With this set
+      -- to 2025-01-01 the 2024 series disappears from those charts. Lower the
+      -- var if that comparison is still wanted.
+      and og.delivereddate >= date '{{ var("reporting_start_date") }}'
 
 ),
 

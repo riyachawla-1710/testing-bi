@@ -37,9 +37,9 @@
 -- revenue; for everything longer it uses rate/mile x total_distance.
 --
 -- DEPENDENCIES NOT YET PORTED -------------------------------------------------
--- The ten AVG_REVENUE_BY_* views, KEURIG_SHUNTINGREVENUE_VW, TONUORDERSBI_VW
--- and ORDERCHARGES_BS_VW are still sources. They form the "lane rate
--- benchmark" layer and are the natural next chunk of work.
+-- The ten lane-rate views are now ported (models/intermediate/lane_rates).
+-- Still sources: KEURIG_SHUNTINGREVENUE_VW, TONUORDERSBI_VW and
+-- ORDERCHARGES_BS_VW.
 --
 -- ORDERCHARGES_BS_VW READS OPSYNC.BILLINGSYSTEM.ORDERCHARGE - not Postgres.
 -- That is a hard blocker for the BILLING SYSTEM step and needs its own answer.
@@ -169,45 +169,45 @@ with not_invoiced as (
     left join {{ source('bi_analytics', 'tonuordersbi_vw') }} tb on tb.orderid = od.id
 
     -- the cascade: each join is gated on the previous one finding nothing
-    left join {{ source('bi_analytics', 'avg_revenue_by_customer_lane') }} ar
+    left join {{ ref('int_lane_rate_by_customer_lane') }} ar
            on o.customer = ar.customer and opd.od_lane = ar.od_lane
-    left join {{ source('bi_analytics', 'avg_revenue_by_lane') }} al
+    left join {{ ref('int_lane_rate_by_lane') }} al
            on opd.od_lane = al.od_lane
           and ar.avg_revenue is null
-    left join {{ source('bi_analytics', 'avg_revenue_by_customer_statelane') }} asr
+    left join {{ ref('int_lane_rate_by_customer_statelane') }} asr
            on o.customer = asr.customer and opd.od_statelane = asr.od_statelane
           and opd.direction_ns = asr.direction and opd.distancetype = asr.distancetype
           and al.avg_revenue is null
-    left join {{ source('bi_analytics', 'avg_revenue_by_statelane') }} asl
+    left join {{ ref('int_lane_rate_by_statelane') }} asl
            on opd.od_statelane = asl.od_statelane
           and opd.direction_ns = asl.direction and opd.distancetype = asl.distancetype
           and asr.avg_rpm is null
-    left join {{ source('bi_analytics', 'avg_revenue_by_countrylane') }} acl
+    left join {{ ref('int_lane_rate_by_countrylane') }} acl
            on opd.od_countrylane = acl.od_countrylane
           and opd.distancetype = acl.distancetype and opd.direction = acl.direction
           and asl.avg_rpm is null
-    left join {{ source('bi_analytics', 'avg_revenue_by_countrylane_direction') }} adl
+    left join {{ ref('int_lane_rate_by_countrylane_direction') }} adl
            on opd.od_countrylane = adl.od_countrylane
           and opd.distancetype = adl.distancetype and opd.direction_ns = adl.direction
           and acl.avg_rpm is null
-    left join {{ source('bi_analytics', 'avg_revenue_by_direction') }} ard
+    left join {{ ref('int_lane_rate_by_direction') }} ard
            on opd.direction = ard.direction and opd.distancetype = ard.distancetype
           and adl.avg_rpm is null
-    left join {{ source('bi_analytics', 'avg_revenue_by_distinct_state_country_lane') }} adsc
+    left join {{ ref('int_lane_rate_by_distinct_state_country_lane') }} adsc
            on opd.order_direction = adsc.order_direction
           and opd.distancetype = adsc.distancetype
           and opd.od_statelane_distinct = adsc.od_statelane_distinct
           and opd.od_countrylane_distinct = adsc.od_countrylane_distinct
           and od.currency = adsc.currency
           and ard.avg_rpm is null
-    left join {{ source('bi_analytics', 'avg_revenue_by_distinct_country_lane') }} adc
+    left join {{ ref('int_lane_rate_by_distinct_country_lane') }} adc
            on opd.order_direction = adc.order_direction
           and case when opd.distancetype in ('VERY LONG','LONG') then 'LONG'
                    else opd.distancetype end = adc.distancetype
           and opd.od_countrylane_distinct = adc.od_countrylane_distinct
           and od.currency = adc.currency
           and adsc.avg_rpm is null
-    left join {{ source('bi_analytics', 'avg_revenue_by_countrylane_roundtrip') }} art
+    left join {{ ref('int_lane_rate_by_countrylane_roundtrip') }} art
            on case when opd.roundtrip_check then 'RT' else opd.order_direction end = art.order_direction
           and case when opd.distancetype in ('VERY LONG','LONG','MEDIUM') then 'LONG'
                    else opd.distancetype end = art.distancetype
