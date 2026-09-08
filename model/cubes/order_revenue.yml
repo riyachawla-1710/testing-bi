@@ -227,28 +227,40 @@ cubes:
     # Requires a `business_unit` user attribute, sourced from
     # BI.ANALYTICS.SALESREPORTACCESS (59 rows).
     # -------------------------------------------------------------------------
-    access_policy:
-      - role: "*"
-        conditions:
-          - if: "{ securityContext.business_unit is not defined }"
-        member_level:
-          includes: "*"
-
-      - role: sales_rep
-        member_level:
-          includes: "*"
-          # Cost detail is finance-only
-          excludes:
-            - carrier_cost_usd
-            - transfer_cost_usd
-            - trailer_cost_usd
-            - ts_leg_cost_usd
-            - total_order_cost_usd
-        row_level:
-          filters:
-            - member: business_unit
-              operator: equals
-              values: ["{ securityContext.business_unit }"]
+    # -------------------------------------------------------------------------
+    # Row-level security - DISABLED until user attributes exist.
+    #
+    # Two things are needed before this can work:
+    #   1. a `business_unit` user attribute, sourced from
+    #      BI.ANALYTICS.SALESREPORTACCESS (59 rows)
+    #   2. a `sales_rep` user group, mapped via context_to_groups in cube.py
+    #
+    # Cube requires `group:` (or `groups:`) here, NOT `role:`. Uncomment once
+    # the attribute and group exist - it will fail to compile before then.
+    #
+    # In Tableau, BUSINESSUNITCODE is an open filter, so rep scoping is
+    # advisory today and any viewer can widen it. This block is what makes it
+    # enforced, identically for dashboards, the API and analytics chat.
+    # -------------------------------------------------------------------------
+    # access_policy:
+    #   - group: default
+    #     member_level:
+    #       includes: "*"
+    #
+    #   - group: sales_rep
+    #     member_level:
+    #       includes: "*"
+    #       excludes:
+    #         - carrier_cost_usd
+    #         - transfer_cost_usd
+    #         - trailer_cost_usd
+    #         - ts_leg_cost_usd
+    #         - total_order_cost_usd
+    #     row_level:
+    #       filters:
+    #         - member: business_unit
+    #           operator: equals
+    #           values: ["{ securityContext.business_unit }"]
 
     # -------------------------------------------------------------------------
     # Pre-aggregations. These are what keep AlloyDB out of the request path:
