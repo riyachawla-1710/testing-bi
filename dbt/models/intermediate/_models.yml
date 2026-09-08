@@ -122,3 +122,81 @@ models:
         description: Which rule produced the value. 18 possible values.
         data_type: text
 
+  - name: int_tonu_orders
+    description: >
+      Port of TONUORDERSBI_VW. Orders whose probills have NO trip events -
+      truck ordered, nothing moved. Used as an exclusion list by the Labatt
+      allocation and the predicted-revenue cascade.
+    columns:
+      - name: orderid
+        data_type: text
+        tests: [unique, not_null]
+      - name: totalevent
+        description: Always 0 by construction.
+        data_type: numeric
+
+  - name: int_keurig_shunting_revenue
+    description: >
+      Port of KEURIG_SHUNTINGREVENUE_VW. Average revenue for Keurig yard
+      shunting - zero-distance moves within Quebec, which is why they cannot be
+      rated per mile like everything else. Last step of the cascade.
+      Rolling 3-month window on invoice date, so the value moves over time.
+    columns:
+      - name: od_statelane_distinct
+        description: Always 'QC - QC' by construction.
+        data_type: text
+      - name: avg_revenue
+        data_type: numeric
+
+  - name: int_order_extra_charges
+    description: >
+      Port of ORDEREXTRACHARGES_VW. Two JSON blobs per order breaking down
+      "extra" charges (neither freight nor fuel) by charge code, nested by
+      currency. Unions order charges, billable adjustments and manual invoice
+      lines.
+      Uses jsonb_object_agg, which ERRORS on a null key where Snowflake's
+      OBJECT_AGG silently skipped the pair - null guards added.
+    columns:
+      - name: orderguid
+        data_type: text
+        tests: [unique, not_null]
+      - name: orderextracharge_details
+        description: 'e.g. {"C": {"DETENTION": 150, "LUMPER": 75}}'
+        data_type: jsonb
+      - name: manualextracharge_details
+        data_type: jsonb
+
+  - name: int_labatt_order_revenue
+    description: >
+      Port of LABATT_ORDERREVENUE_VW (43,383 rows). Labatt shuttle work is
+      billed as ONE manual invoice per month per side; this splits that total
+      back across individual orders.
+
+      THE ALLOCATION IS BY SQUARE ROOT OF DISTANCE, not distance. A 100-mile
+      move earns ~3x a 10-mile move rather than 10x. Deliberate, and invisible
+      unless you read the SQL - which is the whole argument for having it in a
+      documented model rather than a view.
+
+      Two paths: MANUAL (matched to the manual invoice one month behind the
+      pickup month) and CONSOLIDATED MANUAL (matched by invoice number, no
+      offset). TONU orders excluded. Two hardcoded values kept for fidelity -
+      a mis-dated invoice GUID shifted an extra month, and one invoice forced
+      to the QC side. Both belong in a seed.
+    columns:
+      - name: orderguid
+        data_type: text
+        tests: [not_null]
+      - name: labatt_orderrevnotax
+        description: The allocated per-order revenue used by int_order_charges_with_adjustment.
+        data_type: numeric
+      - name: orderside
+        data_type: text
+        tests:
+          - accepted_values:
+              values: ['QC', 'PORTSIDE']
+      - name: source
+        data_type: text
+        tests:
+          - accepted_values:
+              values: ['MANUAL', 'CONSOLIDATED MANUAL']
+

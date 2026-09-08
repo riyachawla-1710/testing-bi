@@ -56,6 +56,10 @@ BI.ANALYTICS (not ported yet)                    │
 `int_opd_miles` | `OPD_MILES_VW` | Faithful. Reads only CHARGERFLEET |
 `int_predicted_revenue` | `PREDICTED_REVENUE_BS_VW` | Faithful |
 **10 × `int_lane_rate_by_*`** | the ten `AVG_REVENUE_BY_*` views | Faithful. `QUALIFY` and `MEDIAN` rewritten for Postgres |
+`int_tonu_orders` | `TONUORDERSBI_VW` | Faithful |
+`int_keurig_shunting_revenue` | `KEURIG_SHUNTINGREVENUE_VW` | Faithful |
+`int_order_extra_charges` | `ORDEREXTRACHARGES_VW` | Faithful. `OBJECT_AGG` -> `jsonb_object_agg` |
+`int_labatt_order_revenue` | `LABATT_ORDERREVENUE_VW` | Faithful. Allocation is by **sqrt(distance)** |
 `fct_order_revenue` | the Tableau workbook's custom SQL | **One deliberate change — see below** |
 
 ## What is NOT ported

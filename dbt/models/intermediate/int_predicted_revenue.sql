@@ -162,11 +162,11 @@ with not_invoiced as (
     from {{ source('probillsvc', 'order') }} od
     left join {{ source('probillsvc', 'po') }} po on od.poid = po.id and po.isrowdeleted = 0
     left join {{ ref('int_order_charges_with_adjustment') }} o on od.id = o.orderguid
-    left join {{ source('pending', 'labatt_orderrevenue') }} lb on lb.orderguid = od.id
+    left join {{ ref('int_labatt_order_revenue') }} lb on lb.orderguid = od.id
     left join {{ source('pending', 'ordercharges_bs_vw') }} ob on ob.orderguid = od.id
     left join {{ source('probillsvc', 'probill') }} p on od.id = p.orderid and p.isrowdeleted = 0
     left join {{ ref('int_opd_miles') }} opd on o.orderguid = opd.orderguid
-    left join {{ source('pending', 'tonuordersbi_vw') }} tb on tb.orderid = od.id
+    left join {{ ref('int_tonu_orders') }} tb on tb.orderid = od.id
 
     -- the cascade: each join is gated on the previous one finding nothing
     left join {{ ref('int_lane_rate_by_customer_lane') }} ar
@@ -216,7 +216,7 @@ with not_invoiced as (
           and od.currency = art.currency
           and opd.probillcount > 1
           and adc.avg_rpm is null
-    left join {{ source('pending', 'keurig_shuntingrevenue_vw') }} ks
+    left join {{ ref('int_keurig_shunting_revenue') }} ks
            on ks.od_statelane_distinct = opd.od_statelane_distinct
           and od.currency = ks.currency
           and opd.customer = 'KEURIG CANADA INC.'

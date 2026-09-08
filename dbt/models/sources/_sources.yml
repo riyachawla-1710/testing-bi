@@ -90,6 +90,14 @@ sources:
       - name: jurisdiction
         description: State/province codes. QR->QA, PQ->QC, DF->MX are remapped.
 
+  - name: tripsvc
+    schema: tripsvc
+    tables:
+      - name: tripevent
+        description: >
+          Trip events per probill. int_tonu_orders uses their ABSENCE to find
+          TONU orders - truck ordered, nothing moved.
+
   - name: addresssvc
     schema: addresssvc
     tables:
@@ -124,20 +132,31 @@ sources:
           the whole lane-rate layer local. Biggest single win left.
       - name: globalbrokerageanalysis
         description: >
-          PORTABLE (17,596 chars). Feeds int_ts_hybrid_brokerage_pnl, which
-          only the Revenue Execution dashboards need - not Revenue Performance.
-      - name: orderextracharges_vw
-        description: PORTABLE (5,375 chars). Extra-charge detail strings.
-      - name: tonuordersbi_vw
-        description: PORTABLE. TONU (truck ordered not used) orders.
-      - name: keurig_shuntingrevenue_vw
-        description: PORTABLE (485 chars). Keurig shunting rates, last cascade step.
-      - name: labatt_orderrevenue
-        description: >
-          PORTABLE. Manual Labatt revenue override. Drives the UNION ALL branch
-          of int_order_charges_with_adjustment. Small - may belong as a seed.
+          PORTABLE BUT LARGE - its own project, not a view port. 17,596 chars,
+          and its dependency list brings in a whole new tier this repo does not
+          model yet: the contract and trip costing layer.
+          New sources it needs: CHARGERFLEET.TRIPSVC.{contract, contractcategory,
+          contractcharge, contractchargetype, trip, tripcategory, triprole},
+          CARRIERSVC.CARRIER, FLEETSVC.DIVISION, PROBILLSVC.ORDERCATEGORY,
+          USERSVC.USEREMAILHISTORY - plus BI.ANALYTICS.EVENTFORPROBILL and
+          MARKETPLACE_SPOTRATE_VW.
+          Only int_ts_hybrid_brokerage_pnl needs it, and that only feeds the
+          Revenue Execution dashboards - NOT Revenue Performance. Safe to defer.
       - name: ordercartaportelifecycle
-        description: PORTABLE. TS match rates for the brokerage P&L.
+        description: >
+          NOT A SIMPLE VIEW PORT - investigated 2026-09-08.
+          The TABLE (138,033 rows) supplies matchrateinbound / matchrateoutbound
+          to int_ts_hybrid_brokerage_pnl. But ORDERCARTAPORTELIFECYCLE_VW is
+          SELF-REFERENTIAL: it reads the very table it is named after, and
+          produces a DIFFERENT set of columns (invoice/CFDI reporting fields),
+          none of which are the match rates. So porting that view does not
+          unblock the brokerage P&L.
+          It also pulls in CHARGERFLEET.INVOICINGMXSVC - eight tables of Mexican
+          CFDI/Carta Porte invoicing (comprobante, cartaporte, emisor, receptor,
+          moneda, cartaporteubicacion, cartaporterequest, invoicelocation) -
+          plus BI.ANALYTICS.CARTAPORTEWDINVOICES_VW.
+          NEXT STEP: find the job that actually POPULATES the table (a task or
+          stored procedure, not this view) and port that instead.
 
       # --- NOT portable: these read other systems ---------------------------
       - name: ordercharges_bs_vw
