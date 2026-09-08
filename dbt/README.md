@@ -53,6 +53,8 @@ BI.ANALYTICS (not ported yet)                    │
 `int_order_charges` | ORDERCHARGE CTE | Faithful; tax rate factored into its own CTE |
 `int_order_charges_with_adjustment` | `ORDERCHARGES_WITHADJUSTMENT_VW` | Faithful, including the Labatt UNION ALL branch |
 `int_ts_hybrid_brokerage_pnl` | `TSHYBRIDBROKERAGEPANDL_VW` | Faithful; needs `globalbrokerageanalysis` |
+`int_opd_miles` | `OPD_MILES_VW` | Faithful. Reads only CHARGERFLEET |
+`int_predicted_revenue` | `PREDICTED_REVENUE_BS_VW` | Faithful; needs the lane-rate views |
 `fct_order_revenue` | the Tableau workbook's custom SQL | **One deliberate change — see below** |
 
 ## What is NOT ported
@@ -62,10 +64,11 @@ Each is its own piece of work:
 
 | Object | Size | Why it matters |
 |---|---|---|
-`OPD_MILES_VW` | 14,918 chars | Populates the `opd_miles` table (1,114,454 rows) — order geography, lane, spot status |
-`PREDICTED_REVENUE_BS_VW` | 11,341 chars | Predicted revenue for un-invoiced orders |
+**10 × `AVG_REVENUE_BY_*`** | ~6,300 chars | The lane-rate benchmark layer — the fallback cascade in `int_predicted_revenue`. Next chunk of work. |
+`ORDERCHARGES_BS_VW` | 7,532 chars | **Reads `OPSYNC.BILLINGSYSTEM` — not Postgres.** Blocks the cascade's "BILLING SYSTEM" step. |
 `GLOBALBROKERAGEANALYSIS` | 17,596 chars | Feeds the brokerage P&L |
 `ORDEREXTRACHARGES_VW` | 5,375 chars | Extra-charge detail strings |
+`TONUORDERSBI_VW`, `KEURIG_SHUNTINGREVENUE_VW` | small | Cascade inputs |
 `ORDERCARTAPORTELIFECYCLE` | table | TS match rates |
 
 ## The one deliberate change

@@ -99,7 +99,7 @@ with base as (
             ) as date
         )                                                     as rate_date
 
-    from {{ source('bi_analytics', 'opd_miles') }} o
+    from {{ ref('int_opd_miles') }} o
 
     join {{ source('probillsvc', 'order') }} og
       on og.id = o.orderguid
@@ -107,7 +107,7 @@ with base as (
     left join {{ ref('int_order_charges_with_adjustment') }} oc
       on oc.orderguid = o.orderguid
 
-    left join {{ source('bi_analytics', 'predicted_revenue_bs') }} pr
+    left join {{ ref('int_predicted_revenue') }} pr
       on pr.orderguid = o.orderguid
 
     left join {{ source('bi_analytics', 'salesreportaccess') }} sra

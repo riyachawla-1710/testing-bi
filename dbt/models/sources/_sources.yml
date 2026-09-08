@@ -25,6 +25,10 @@ sources:
       - name: probill
       - name: taxcodes
       - name: taxitems
+      - name: pickdeldates
+        description: Planned and actual pickup/delivery datetimes per probill.
+      - name: po
+        description: Purchase orders. pobillingstatusid drives the NON BILLABLE PO rule.
 
   - name: invoicesvc
     database: CHARGERFLEET
@@ -37,6 +41,31 @@ sources:
       - name: invoiceorderrel
       - name: currency
         description: Currency short codes - C = CAD, U = USD, P = MXN.
+
+  - name: trailersvc
+    database: CHARGERFLEET
+    schema: TRAILERSVC
+    tables:
+      - name: trailertype
+        description: Trailer type name - REEFER matching drives equipmenttype.
+
+  - name: fleetsvc
+    database: CHARGERFLEET
+    schema: FLEETSVC
+    tables:
+      - name: location
+        description: Stop locations with lat/lon and parent location.
+      - name: jurisdiction
+        description: State/province codes. QR->QA, PQ->QC, DF->MX are remapped.
+
+  - name: addresssvc
+    database: CHARGERFLEET
+    schema: ADDRESSSVC
+    tables:
+      - name: traveltime
+        description: >
+          Point-to-point mileage and minutes between locations. int_opd_miles
+          tries A->B, then B->A, then the parent locations both ways.
 
   - name: customersvc
     database: CHARGERFLEET
@@ -77,16 +106,6 @@ sources:
     schema: ANALYTICS
     description: Existing Snowflake analytics layer. Each table below is a separate port.
     tables:
-      - name: opd_miles
-        description: >
-          TABLE (1,114,454 rows), materialised from OPD_MILES_VW.
-          Supplies order geography, lane and spot status.
-          TODO: port OPD_MILES_VW (14,918 chars) - separate scope.
-      - name: predicted_revenue_bs
-        description: >
-          TABLE (1,115,472 rows). Predicted revenue for un-invoiced orders,
-          derived from the AVG_REVENUE_BY_* lane models.
-          TODO: port PREDICTED_REVENUE_BS_VW (11,341 chars) - separate scope.
       - name: salesreportaccess
         description: >
           TABLE (59 rows). Sales rep -> business unit mapping. This is the table
@@ -100,3 +119,27 @@ sources:
         description: Feeds the brokerage P&L. TODO port (17,596 chars) - large.
       - name: ordercartaportelifecycle
         description: Supplies TS match rates (inbound/outbound) to the brokerage P&L.
+      - name: ordercharges_bs_vw
+        description: >
+          Charges from the OPSYNC billing system. READS OPSYNC.BILLINGSYSTEM -
+          NOT Postgres. Hard blocker for the 'BILLING SYSTEM' step of the
+          predicted-revenue cascade. TODO port (7,532 chars).
+      - name: tonuordersbi_vw
+        description: TONU (truck ordered not used) orders. TODO port.
+      - name: keurig_shuntingrevenue_vw
+        description: Keurig shunting rates, last step of the cascade. TODO port (485 chars).
+
+      # --- the lane rate benchmark layer -----------------------------------
+      # Ten views, all derived from ORDERLANEREVENUEMAPPING, queried 1,085
+      # times each in 90 days. They are the fallback cascade in
+      # int_predicted_revenue. Porting them is the next clearly-scoped chunk.
+      - name: avg_revenue_by_customer_lane
+      - name: avg_revenue_by_lane
+      - name: avg_revenue_by_customer_statelane
+      - name: avg_revenue_by_statelane
+      - name: avg_revenue_by_countrylane
+      - name: avg_revenue_by_countrylane_direction
+      - name: avg_revenue_by_countrylane_roundtrip
+      - name: avg_revenue_by_direction
+      - name: avg_revenue_by_distinct_state_country_lane
+      - name: avg_revenue_by_distinct_country_lane
