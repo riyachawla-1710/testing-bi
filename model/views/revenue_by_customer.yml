@@ -1,0 +1,28 @@
+# Powers the "Revenue Performance Analysis" dashboard.
+# Tiles: Customer: Revenue Performance, Trend: Revenue Performance,
+#        Revenue Performance (monthly), Trend: YoY Revenue Performance.
+views:
+  - name: revenue_by_customer
+    description: >
+      Revenue and order volume by customer and delivery month.
+      Replaces the Tableau workbook of the same name.
+    cubes:
+      - join_path: order_revenue
+        includes:
+          # filters shown on the dashboard
+          - customer
+          - sales_rep
+          - business_unit
+          - spot_flag
+          - revenue_source
+          - delivered_date
+          - delivered_year
+          - delivered_month_of_year
+          # measures
+          - order_count
+          - revenue_fsc_only_usd
+          - revenue_incl_fsc_usd
+          - revenue_ex_fsc_usd
+          - revenue_fsc_only_cad
+          - revenue_incl_fsc_cad
+          - revenue_ex_fsc_cad

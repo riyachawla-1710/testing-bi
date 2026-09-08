@@ -1,0 +1,312 @@
+# =============================================================================
+# order_revenue
+#
+# Sits on the dbt mart `reporting.fct_order_revenue` (see /dbt).
+# Replaces the custom SQL + calculated fields inside the Tableau workbook
+# "Revenue Performance Analysis.twbx".
+#
+# Kept private on purpose - dashboards and BI tools should point at the views
+# in model/views, not at this cube.
+# =============================================================================
+cubes:
+  - name: order_revenue
+    sql_table: reporting.fct_order_revenue
+    data_source: default          # PostgreSQL / AlloyDB read pool
+    public: false
+    description: >
+      One row per order. Revenue is ACTUAL when the order is invoiced and
+      PREDICTED otherwise. Money columns are pre-converted to CAD and USD at the
+      daily Bank of Canada rate for the order's rate_date.
+
+    dimensions:
+      - name: orderno
+        sql: orderno
+        type: number
+        primary_key: true
+        description: Order number. Unique per order.
+
+      - name: customer
+        sql: customer
+        type: string
+        description: Customer legal business name. 1,756 distinct values.
+
+      - name: sales_rep
+        sql: salesrep
+        type: string
+        description: Sales rep, upper-cased. 'NONE' when unassigned.
+
+      - name: business_unit
+        sql: businessunitcode
+        type: string
+        description: >
+          Business unit from SALESREPORTACCESS. 22 values. This is the
+          dimension the access policy below filters on.
+
+      - name: business_unit_description
+        sql: businessunitdescription
+        type: string
+
+      - name: spot_flag
+        sql: spot_status
+        type: string
+        description: Spot vs contract. Two values.
+
+      - name: revenue_source
+        sql: revenuesource
+        type: string
+        description: ACTUAL for invoiced orders, PREDICTED otherwise.
+
+      - name: pickup_city
+        sql: pickcity
+        type: string
+      - name: pickup_state
+        sql: pickstate
+        type: string
+      - name: pickup_country
+        sql: pickcountry
+        type: string
+      - name: delivery_city
+        sql: delcity
+        type: string
+      - name: delivery_state
+        sql: delstate
+        type: string
+      - name: delivery_country
+        sql: delcountry
+        type: string
+
+      - name: lane
+        sql: lane
+        type: string
+        description: >
+          Origin-destination lane. 24,537 distinct values - high cardinality,
+          do not put it in a pre-aggregation.
+
+      - name: delivered_date
+        sql: delivereddate
+        type: time
+        description: The reporting date for every tile on every dashboard.
+
+      - name: pickup_date
+        sql: pickedupdate
+        type: time
+
+      # Pre-computed so the YoY tile does not need EXTRACT() at query time,
+      # and so both parts can live in a pre-aggregation.
+      - name: delivered_year
+        sql: "EXTRACT(YEAR FROM {CUBE}.delivereddate)"
+        type: number
+        description: Calendar year of delivery. Used by the YoY tiles.
+
+      - name: delivered_month_of_year
+        sql: "EXTRACT(MONTH FROM {CUBE}.delivereddate)"
+        type: number
+        description: Month number 1-12, ignoring year. Used by the YoY tiles.
+
+      - name: category
+        sql: >
+          CASE WHEN {CUBE}.tshybridbrokerage THEN 'Brokerage' ELSE 'Asset' END
+        type: string
+        description: >
+          Asset vs Brokerage. WARNING - this reproduces only the DEFAULT of the
+          Tableau "Hybrid Brokerage Type" parameter, which keys off
+          tshybridbrokerage alone. Under that default a PURE brokerage order
+          that is not TS-hybrid is classified as Asset. The other two parameter
+          values used different definitions. Confirm with the revenue owner
+          before this is trusted; see category_pure_only below.
+
+      - name: category_pure_only
+        sql: >
+          CASE WHEN {CUBE}.tshybridbrokerage AND NOT {CUBE}.brokerageorder
+               THEN 'Brokerage' ELSE 'Asset' END
+        type: string
+        public: false
+        description: The 'Only TS Hybrid Orders' variant of the parameter, for comparison.
+
+    measures:
+      # --- volume ------------------------------------------------------------
+      - name: order_count
+        type: count_distinct
+        sql: orderno
+        description: >
+          Distinct orders. Shown as "Total Orders". Exact distinct count - it
+          does NOT combine additively, which is why the order_grain
+          pre-aggregation below exists.
+
+      # --- revenue: three NAMED measures, not a parameter --------------------
+      # The Tableau workbook used one measure whose meaning changed with the
+      # "fsc Revenue Toggle" parameter (default: fsc Only). Naming them removes
+      # the "which number am I looking at" problem entirely.
+      - name: revenue_fsc_only_usd
+        type: sum
+        sql: orderfscrevenueusd
+        format: currency
+        description: Fuel-surcharge revenue only, USD. Equivalent to the 'fsc Only' toggle.
+
+      - name: revenue_incl_fsc_usd
+        type: sum
+        sql: "orderrevenueusd + manualchargesnotaxusd"
+        format: currency
+        description: Total order revenue including fuel surcharge, USD. The 'fsc Inclusive' toggle.
+
+      - name: revenue_ex_fsc_usd
+        type: sum
+        sql: "orderrevenueusd + manualchargesnotaxusd - orderfscrevenueusd"
+        format: currency
+        description: Total order revenue excluding fuel surcharge, USD. The 'fsc Exclusive' toggle.
+
+      - name: revenue_fsc_only_cad
+        type: sum
+        sql: orderfscrevenuecad
+        format: currency
+      - name: revenue_incl_fsc_cad
+        type: sum
+        sql: "orderrevenuecad + manualchargesnotaxcad"
+        format: currency
+      - name: revenue_ex_fsc_cad
+        type: sum
+        sql: "orderrevenuecad + manualchargesnotaxcad - orderfscrevenuecad"
+        format: currency
+
+      # --- brokerage P&L (Revenue Execution dashboards) ---------------------
+      - name: brokerage_revenue_usd
+        type: sum
+        sql: brokeragerevenueusd
+        format: currency
+      - name: brokerage_gp_usd
+        type: sum
+        sql: brokeragegpusd
+        format: currency
+      - name: carrier_cost_usd
+        type: sum
+        sql: carriercostusd
+        format: currency
+      - name: transfer_cost_usd
+        type: sum
+        sql: transfercostusd
+        format: currency
+      - name: trailer_cost_usd
+        type: sum
+        sql: trailercostusd
+        format: currency
+      - name: ts_leg_cost_usd
+        type: sum
+        sql: tsrateusd
+        format: currency
+        description: >
+          Sum of TS leg RATES. The workbook sums this as a cost; a sum of rates
+          is not obviously meaningful. Flagged for review, kept for parity.
+
+      - name: total_order_cost_usd
+        sql: "{carrier_cost_usd} + {transfer_cost_usd} + {trailer_cost_usd} + {ts_leg_cost_usd}"
+        type: number
+        format: currency
+
+      # --- ratios: computed AFTER aggregation, never per row ----------------
+      - name: brokerage_gp_pct
+        sql: "{brokerage_gp_usd} / NULLIF({brokerage_revenue_usd}, 0)"
+        type: number
+        format: percent
+        description: >
+          SUM(GP) / SUM(brokerage revenue). Must be post-aggregation - computing
+          it per order and averaging gives a different, wrong answer.
+
+      - name: margin_status
+        sql: >
+          CASE WHEN {brokerage_gp_pct} >= 0.08 THEN 'GREEN'
+               WHEN {brokerage_gp_pct} >= 0    THEN 'YELLOW'
+               ELSE 'RED' END
+        type: string
+        description: Brokerage GP% thresholds - 8% and 0%, from the Tableau calc.
+
+    # -------------------------------------------------------------------------
+    # Row-level security. In Tableau, BUSINESSUNITCODE is an open filter, so
+    # rep scoping is advisory and any viewer can widen it. Here it is enforced
+    # at query time, identically for dashboards, the API and analytics chat.
+    #
+    # Requires a `business_unit` user attribute, sourced from
+    # BI.ANALYTICS.SALESREPORTACCESS (59 rows).
+    # -------------------------------------------------------------------------
+    access_policy:
+      - role: "*"
+        conditions:
+          - if: "{ securityContext.business_unit is not defined }"
+        member_level:
+          includes: "*"
+
+      - role: sales_rep
+        member_level:
+          includes: "*"
+          # Cost detail is finance-only
+          excludes:
+            - carrier_cost_usd
+            - transfer_cost_usd
+            - trailer_cost_usd
+            - ts_leg_cost_usd
+            - total_order_cost_usd
+        row_level:
+          filters:
+            - member: business_unit
+              operator: equals
+              values: ["{ securityContext.business_unit }"]
+
+    # -------------------------------------------------------------------------
+    # Pre-aggregations. These are what keep AlloyDB out of the request path:
+    # dashboards read Cube Store, and Postgres sees ~1 query per refresh.
+    # -------------------------------------------------------------------------
+    pre_aggregations:
+      - name: order_grain
+        # Needed because order_count is an exact count_distinct, which cannot
+        # be rolled up from a coarser aggregate.
+        dimensions:
+          - orderno
+          - customer
+          - sales_rep
+          - business_unit
+          - spot_flag
+          - revenue_source
+          - category
+        time_dimension: delivered_date
+        granularity: day
+        partition_granularity: month
+        refresh_key:
+          every: 1 hour
+
+      - name: customer_month
+        measures:
+          - revenue_fsc_only_usd
+          - revenue_incl_fsc_usd
+          - revenue_ex_fsc_usd
+          - revenue_fsc_only_cad
+          - revenue_incl_fsc_cad
+          - revenue_ex_fsc_cad
+          - brokerage_revenue_usd
+          - brokerage_gp_usd
+        dimensions:
+          - customer
+          - sales_rep
+          - business_unit
+          - spot_flag
+          - revenue_source
+          - category
+        time_dimension: delivered_date
+        granularity: month
+        partition_granularity: year
+        refresh_key:
+          every: 1 hour
+
+      - name: yoy_month
+        measures:
+          - revenue_incl_fsc_usd
+          - revenue_fsc_only_usd
+        dimensions:
+          - delivered_year
+          - delivered_month_of_year
+          - customer
+          - sales_rep
+          - business_unit
+        time_dimension: delivered_date
+        granularity: month
+        partition_granularity: year
+        refresh_key:
+          every: 1 hour

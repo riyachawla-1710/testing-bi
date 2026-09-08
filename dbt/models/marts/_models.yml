@@ -1,0 +1,172 @@
+version: 2
+
+models:
+  - name: fct_order_revenue
+    description: >
+      One row per order. The single table the Cube semantic model sits on.
+      Ports the custom SQL from the Revenue Performance Analysis Tableau workbook.
+      Revenue is actual when the order is invoiced, predicted otherwise.
+
+    # data_type is declared on EVERY column on purpose. Cube's dbt integration
+    # infers dimension types from data_type first, the warehouse catalog second,
+    # and COLUMN-NAME HEURISTICS third. Declaring types here stops the heuristics
+    # from ever running, and stops Cube auto-generating a SUM measure on a rate
+    # column (e.g. SUM(tsratecad), which is meaningless).
+    columns:
+
+      - name: orderno
+        description: Order number. Primary key.
+        data_type: numeric
+        tests:
+          - unique          # unique + not_null is the pair that tells Cube
+          - not_null        # this is the primary key
+
+      - name: orderguid
+        description: Order GUID, join key to the operational tables.
+        data_type: text
+        tests: [not_null]
+
+      - name: customer
+        description: Customer legal business name. 1,756 distinct values.
+        data_type: text
+
+      - name: salesrep
+        description: Sales rep, upper-cased. 'NONE' when unassigned. 133 distinct.
+        data_type: text
+
+      - name: businessunitcode
+        description: >
+          Business unit, from SALESREPORTACCESS. 22 distinct values.
+          USE THIS FOR ROW-LEVEL SECURITY IN CUBE - in Tableau it is an open
+          filter, so rep scoping is currently advisory and any viewer can widen it.
+        data_type: text
+
+      - name: businessunitdescription
+        data_type: text
+
+      - name: pickcity
+        data_type: text
+      - name: pickstate
+        data_type: text
+      - name: pickcountry
+        description: Mapped from single letters - C to CAN, U to USA, M to MEX.
+        data_type: text
+      - name: delcity
+        data_type: text
+      - name: delstate
+        data_type: text
+      - name: delcountry
+        description: Mapped from single letters - C to CAN, U to USA, M to MEX.
+        data_type: text
+
+      - name: lane
+        description: Origin-destination lane. 24,537 distinct - do not use as a default dimension.
+        data_type: text
+
+      - name: spot_status
+        description: Spot flag. Two values.
+        data_type: text
+
+      - name: pickedupdate
+        data_type: timestamp
+      - name: delivereddate
+        description: >
+          The reporting date for every dashboard. Approximately 1,997 distinct
+          dates, about 5.5 years.
+        data_type: timestamp
+        tests:
+          - dbt_utils.expression_is_true:
+              expression: "<= current_date + interval '1 day'"
+              config:
+                severity: warn
+                error_if: ">1000"
+              # The Tableau workbook defines a "Del Date less than today" guard
+              # (delivereddate <= today AND >= 2024-01-01 AND pickedupdate <= tomorrow)
+              # but applies it to NO sheet. This test surfaces what that guard
+              # would have caught. Decide whether to enforce it.
+
+      - name: rate_date
+        description: >
+          Date used for FX conversion - coalesce(invoicedate, pickedupdate,
+          delivereddate). NULL when an order has none of the three, which is the
+          fix for the original CURRENT_DATE fallback that made history move.
+        data_type: date
+
+      - name: revenuesource
+        description: ACTUAL when invoiced, PREDICTED otherwise.
+        data_type: text
+        tests:
+          - accepted_values:
+              values: ['ACTUAL', 'PREDICTED']
+
+      - name: ordercurrency
+        description: Source currency code - C, U or P.
+        data_type: text
+
+      - name: forexsource
+        description: BOC when a real rate existed for that date, else LATEST TILL DATE.
+        data_type: text
+
+      - name: orderrevenue
+        description: Revenue in the order's own currency, before conversion.
+        data_type: numeric
+      - name: orderrevenuecad
+        description: Total order revenue, CAD. Additive.
+        data_type: numeric
+      - name: orderrevenueusd
+        description: Total order revenue, USD. Additive.
+        data_type: numeric
+      - name: orderfscrevenue
+        data_type: numeric
+      - name: orderfscrevenuecad
+        description: Fuel-surcharge revenue, CAD. Additive.
+        data_type: numeric
+      - name: orderfscrevenueusd
+        description: Fuel-surcharge revenue, USD. Additive.
+        data_type: numeric
+      - name: manualchargesnotaxcad
+        description: Manual charges rolled up across CAD/USD/MXN into CAD. Additive.
+        data_type: numeric
+      - name: manualchargesnotaxusd
+        description: Manual charges rolled up across CAD/USD/MXN into USD. Additive.
+        data_type: numeric
+
+      - name: brokerageorder
+        description: True when the order has no trips at all (pure brokerage).
+        data_type: boolean
+      - name: tshybridbrokerage
+        description: True when the order has trips but none outside Mexico.
+        data_type: boolean
+
+      - name: brokeragegpcad
+        description: Brokerage gross profit, CAD. Additive.
+        data_type: numeric
+      - name: brokeragegpusd
+        data_type: numeric
+      - name: brokeragerevenuecad
+        description: Brokerage revenue, CAD. Additive. Denominator of Brokerage GP %.
+        data_type: numeric
+      - name: brokeragerevenueusd
+        data_type: numeric
+      - name: carriercostcad
+        data_type: numeric
+      - name: carriercostusd
+        data_type: numeric
+      - name: transfercostcad
+        data_type: numeric
+      - name: transfercostusd
+        data_type: numeric
+      - name: trailercostcad
+        data_type: numeric
+      - name: trailercostusd
+        data_type: numeric
+
+      - name: tsratecad
+        description: >
+          TS leg RATE, CAD. NOT ADDITIVE in the business sense - a sum of rates
+          is meaningless. Kept because the Tableau workbook sums it as
+          "TS Leg Cost". Do not let Cube auto-generate a measure here without
+          checking that is intended.
+        data_type: numeric
+      - name: tsrateusd
+        data_type: numeric
