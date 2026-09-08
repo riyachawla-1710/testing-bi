@@ -1,21 +1,6 @@
 version: 2
 
 models:
-  - name: int_fx_rates_daily
-    description: >
-      Port of BOCDAILYFXRATES_VW. Dense daily FX calendar per currency from
-      2017-01-03, forward-filling the last known rate over weekends and gaps.
-      Reads WORKDAYBI - the one non-Postgres dependency in this chain.
-    columns:
-      - name: calendardate
-        data_type: date
-      - name: sourcecurrencycode
-        description: C = CAD, U = USD, P = MXN.
-        data_type: text
-    tests:
-      - dbt_utils.unique_combination_of_columns:
-          combination_of_columns: [calendardate, sourcecurrencycode]
-
   - name: int_order_users
     description: Port of the ORDERUSERS CTE. Pivots order-user rows into one column per role.
     columns:
@@ -58,15 +43,6 @@ models:
           - accepted_values:
               values: ['INVOICED', 'NOT INVOICED']
 
-  - name: int_ts_hybrid_brokerage_pnl
-    description: >
-      Port of TSHYBRIDBROKERAGEPANDL_VW. Needed only by the Revenue Execution
-      dashboards. Depends on GLOBALBROKERAGEANALYSIS, which is not ported yet.
-      Contains hardcoded trailer/transfer cost rates - move to a seed.
-    columns:
-      - name: orderguid
-        data_type: text
-
   - name: int_opd_miles
     description: >
       Port of OPD_MILES_VW (populates OPD_MILES, 1,114,454 rows). Rebuilds each
@@ -97,31 +73,6 @@ models:
         description: True when the order has both NB and SB legs.
         data_type: boolean
 
-  - name: int_predicted_revenue
-    description: >
-      Port of PREDICTED_REVENUE_BS_VW (populates PREDICTED_REVENUE_BS,
-      1,115,472 rows). Estimates revenue for un-invoiced orders via six hard
-      overrides then a 12-step fallback cascade; invoiced orders pass through
-      with actual charges. The `source` column records which rule fired -
-      always check it before trusting a number.
-      Still depends on the ten AVG_REVENUE_BY_* views and on
-      ORDERCHARGES_BS_VW, which reads OPSYNC and is therefore not portable to
-      Postgres as-is.
-    columns:
-      - name: orderguid
-        data_type: text
-        tests: [not_null]
-      - name: predicted_revenue
-        description: >
-          Actual charges when invoiced, otherwise an estimate. Forced to 1 by
-          the five override rules (non-billable PO, Ryder/Penske return routes,
-          Honda northbound) so those orders contribute effectively nothing.
-        data_type: numeric
-      - name: source
-          
-        description: Which rule produced the value. 18 possible values.
-        data_type: text
-
   - name: int_tonu_orders
     description: >
       Port of TONUORDERSBI_VW. Orders whose probills have NO trip events -
@@ -135,6 +86,10 @@ models:
         description: Always 0 by construction.
         data_type: numeric
 
+  # NOT IN THE MART LINEAGE. This was an input to int_predicted_revenue,
+  # which is deleted, so nothing references it now. Kept because the SQL is
+  # correct and the question it answers is real; it builds standalone.
+  # Delete it if nobody asks for it.
   - name: int_keurig_shunting_revenue
     description: >
       Port of KEURIG_SHUNTINGREVENUE_VW. Average revenue for Keurig yard

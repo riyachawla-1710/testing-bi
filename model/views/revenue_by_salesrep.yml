@@ -3,20 +3,23 @@
 # worksheets; here it is one view with a different row dimension.
 views:
   - name: revenue_by_salesrep
-    description: Revenue and volume pivoted to sales rep rather than customer.
+    description: >
+      Revenue and volume pivoted to sales rep rather than customer, in the
+      order's own currency. Always group or filter by `currency`.
     cubes:
       - join_path: order_revenue
         includes:
+          - currency
           - sales_rep
           - customer
-          - business_unit
           - spot_flag
-          - revenue_source
-          - category
+          - revenue_status
           - delivered_date
           - delivered_year
           - delivered_month_of_year
           - order_count
-          - revenue_fsc_only_usd
-          - revenue_incl_fsc_usd
-          - revenue_ex_fsc_usd
+          - invoiced_order_count
+          - revenue_fsc_only
+          - revenue_incl_fsc
+          - revenue_ex_fsc
+          - revenue_per_invoiced_order

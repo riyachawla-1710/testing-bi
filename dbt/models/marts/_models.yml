@@ -4,14 +4,17 @@ models:
   - name: fct_order_revenue
     description: >
       One row per order. The single table the Cube semantic model sits on.
-      Ports the custom SQL from the Revenue Performance Analysis Tableau workbook.
-      Revenue is actual when the order is invoiced, predicted otherwise.
+      Ports the custom SQL from the Revenue Performance Analysis Tableau
+      workbook, minus currency conversion, predicted revenue and the brokerage
+      P&L. Money is in the ORDER'S OWN CURRENCY - order_currency is a mandatory
+      slice on any revenue figure. Revenue exists only for INVOICED orders;
+      non-invoiced orders keep their row with NULL revenue.
 
     # data_type is declared on EVERY column on purpose. Cube's dbt integration
     # infers dimension types from data_type first, the warehouse catalog second,
     # and COLUMN-NAME HEURISTICS third. Declaring types here stops the heuristics
-    # from ever running, and stops Cube auto-generating a SUM measure on a rate
-    # column (e.g. SUM(tsratecad), which is meaningless).
+    # from ever running, and stops Cube auto-generating a SUM measure on a
+    # column where summing makes no sense.
     columns:
 
       - name: orderno
@@ -32,16 +35,6 @@ models:
 
       - name: salesrep
         description: Sales rep, upper-cased. 'NONE' when unassigned. 133 distinct.
-        data_type: text
-
-      - name: businessunitcode
-        description: >
-          Business unit, from SALESREPORTACCESS. 22 distinct values.
-          USE THIS FOR ROW-LEVEL SECURITY IN CUBE - in Tableau it is an open
-          filter, so rep scoping is currently advisory and any viewer can widen it.
-        data_type: text
-
-      - name: businessunitdescription
         data_type: text
 
       - name: pickcity
@@ -69,12 +62,14 @@ models:
 
       - name: pickedupdate
         data_type: timestamp
+
       - name: delivereddate
         description: >
-          The reporting date for every dashboard. Approximately 1,997 distinct
-          dates, about 5.5 years.
+          The reporting date for every dashboard. Filtered to
+          reporting_start_date and later.
         data_type: timestamp
         tests:
+          - not_null
           - dbt_utils.expression_is_true:
               expression: "<= current_date + interval '1 day'"
               config:
@@ -85,88 +80,93 @@ models:
               # but applies it to NO sheet. This test surfaces what that guard
               # would have caught. Decide whether to enforce it.
 
-      - name: rate_date
-        description: >
-          Date used for FX conversion - coalesce(invoicedate, pickedupdate,
-          delivereddate). NULL when an order has none of the three, which is the
-          fix for the original CURRENT_DATE fallback that made history move.
-        data_type: date
+      - name: invoicedate
+        description: NULL for orders that are not invoiced.
+        data_type: timestamp
 
-      - name: revenuesource
-        description: ACTUAL when invoiced, PREDICTED otherwise.
+      - name: invoicestatus
+        description: >
+          Raw upstream status. revenue_status is the two-value version the
+          dashboards use; this is kept for drill-down.
+        data_type: text
+
+      - name: revenue_status
+        description: >
+          INVOICED or NOT INVOICED. Revenue is NULL for NOT INVOICED - there is
+          no modelled figure behind them any more.
+        data_type: text
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['INVOICED', 'NOT INVOICED']
+
+      # --- currency ---------------------------------------------------------
+      - name: order_currency_code
+        description: Single-character code as stored - C, U or P.
         data_type: text
         tests:
           - accepted_values:
-              values: ['ACTUAL', 'PREDICTED']
+              values: ['C', 'U', 'P']
+              config:
+                severity: warn
+              # warn, not error: an unmapped code makes order_currency NULL,
+              # which the test below catches as a hard failure. This one tells
+              # you WHICH code appeared.
 
-      - name: ordercurrency
-        description: Source currency code - C, U or P.
-        data_type: text
-
-      - name: forexsource
-        description: BOC when a real rate existed for that date, else LATEST TILL DATE.
-        data_type: text
-
-      - name: orderrevenue
-        description: Revenue in the order's own currency, before conversion.
-        data_type: numeric
-      - name: orderrevenuecad
-        description: Total order revenue, CAD. Additive.
-        data_type: numeric
-      - name: orderrevenueusd
-        description: Total order revenue, USD. Additive.
-        data_type: numeric
-      - name: orderfscrevenue
-        data_type: numeric
-      - name: orderfscrevenuecad
-        description: Fuel-surcharge revenue, CAD. Additive.
-        data_type: numeric
-      - name: orderfscrevenueusd
-        description: Fuel-surcharge revenue, USD. Additive.
-        data_type: numeric
-      - name: manualchargesnotaxcad
-        description: Manual charges rolled up across CAD/USD/MXN into CAD. Additive.
-        data_type: numeric
-      - name: manualchargesnotaxusd
-        description: Manual charges rolled up across CAD/USD/MXN into USD. Additive.
-        data_type: numeric
-
-      - name: brokerageorder
-        description: True when the order has no trips at all (pure brokerage).
-        data_type: boolean
-      - name: tshybridbrokerage
-        description: True when the order has trips but none outside Mexico.
-        data_type: boolean
-
-      - name: brokeragegpcad
-        description: Brokerage gross profit, CAD. Additive.
-        data_type: numeric
-      - name: brokeragegpusd
-        data_type: numeric
-      - name: brokeragerevenuecad
-        description: Brokerage revenue, CAD. Additive. Denominator of Brokerage GP %.
-        data_type: numeric
-      - name: brokeragerevenueusd
-        data_type: numeric
-      - name: carriercostcad
-        data_type: numeric
-      - name: carriercostusd
-        data_type: numeric
-      - name: transfercostcad
-        data_type: numeric
-      - name: transfercostusd
-        data_type: numeric
-      - name: trailercostcad
-        data_type: numeric
-      - name: trailercostusd
-        data_type: numeric
-
-      - name: tsratecad
+      - name: order_currency
         description: >
-          TS leg RATE, CAD. NOT ADDITIVE in the business sense - a sum of rates
-          is meaningless. Kept because the Tableau workbook sums it as
-          "TS Leg Cost". Do not let Cube auto-generate a measure here without
-          checking that is intended.
+          CAD, USD or MXN. MANDATORY SLICE on every money column below.
+          Nothing here is FX-converted, so a revenue total that is not grouped
+          by this column adds Canadian dollars to US dollars to Mexican pesos.
+        data_type: text
+        tests:
+          - accepted_values:
+              values: ['CAD', 'USD', 'MXN']
+
+      # --- revenue, all in order_currency -----------------------------------
+      - name: order_revenue
+        description: >
+          Total order revenue including fuel surcharge, in the order's own
+          currency. NULL when the order is not invoiced. Additive WITHIN a
+          currency only.
         data_type: numeric
-      - name: tsrateusd
+
+      - name: order_fsc_revenue
+        description: >
+          Fuel-surcharge revenue, in the order's own currency. NULL when not
+          invoiced. Additive within a currency only.
+        data_type: numeric
+
+      - name: order_revenue_ex_fsc
+        description: >
+          order_revenue minus order_fsc_revenue. NULL when not invoiced.
+          Additive within a currency only.
+        data_type: numeric
+
+      # --- manual charges ---------------------------------------------------
+      - name: manual_charges
+        description: >
+          Manual (off-invoice) charges expressed in the ORDER'S currency, so it
+          can be added to order_revenue without conversion. Charges billed in
+          any other currency are excluded - see
+          manual_charges_currency_mismatch.
+        data_type: numeric
+
+      - name: manual_charges_currency_mismatch
+        description: >
+          TRUE when the order carries manual charges in a currency other than
+          its own, meaning those amounts are dropped from manual_charges.
+          Query 3 in analyses/validate_dashboard_numbers.sql quantifies the
+          damage. If it is material, FX is not optional after all.
+        data_type: boolean
+        tests: [not_null]
+
+      - name: manual_charges_cad
+        description: Raw manual charges billed in CAD. Kept for drill-down.
+        data_type: numeric
+      - name: manual_charges_usd
+        description: Raw manual charges billed in USD. Kept for drill-down.
+        data_type: numeric
+      - name: manual_charges_mxn
+        description: Raw manual charges billed in MXN. Kept for drill-down.
         data_type: numeric

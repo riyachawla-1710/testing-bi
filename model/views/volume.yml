@@ -1,23 +1,31 @@
 # Powers the "Volume Performance Analysis" dashboard.
 # Note the extra city-level geography filters this dashboard has and the
 # revenue dashboards do not.
+#
+# This is the one dashboard unaffected by dropping FX and predicted revenue:
+# order_count covers invoiced and non-invoiced orders alike, so volume is
+# complete. No money measures here, so no currency slice is required.
 views:
   - name: volume
-    description: Order counts by customer, lane and delivery month.
+    description: >
+      Order counts by customer, lane and delivery month. Counts every order,
+      invoiced or not - use revenue_status to split them.
     cubes:
       - join_path: order_revenue
         includes:
           - customer
           - sales_rep
-          - business_unit
           - spot_flag
+          - revenue_status
           - pickup_city
           - pickup_state
           - pickup_country
           - delivery_city
           - delivery_state
           - delivery_country
+          - lane
           - delivered_date
           - delivered_year
           - delivered_month_of_year
           - order_count
+          - invoiced_order_count

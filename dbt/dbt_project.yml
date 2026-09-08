@@ -4,10 +4,13 @@ config-version: 2
 profile: 'charger_bi'
 
 model-paths: ["models"]
-seed-paths: ["seeds"]
 macro-paths: ["macros"]
+analysis-paths: ["analyses"]
 target-path: "target"
 clean-targets: ["target", "dbt_packages"]
+
+# No seed-paths: the sales_report_access seed is gone, and with it the only
+# seed in the project.
 
 vars:
   # --- Magic IDs lifted out of the original Snowflake views -------------------
@@ -19,11 +22,17 @@ vars:
   role_spot_bid_lead_id:            'DF39571B-5254-4210-B17E-277280B06822'
   role_account_manager_id:          '73661DC2-A21A-4987-8AFC-C3203B313639'
   role_csr_id:                      '38AB7753-8F16-4D24-97E7-EBBCAEFD354F'
-  # Order numbers below this are legacy/test data (from ORDERCHARGES_WITHADJUSTMENT_VW)
+
+  # Order numbers below this are legacy/test data
+  # (from ORDERCHARGES_WITHADJUSTMENT_VW)
   min_order_number:                 10000000
-  # Brokerage P&L only considers orders delivered on or after this date
-  # (this is the original Snowflake view's own rule - kept for fidelity)
-  brokerage_start_date:             '2024-01-01'
+
+  # Pickup-date floor for the Labatt revenue allocation. This was called
+  # brokerage_start_date when the brokerage P&L still existed; it is the same
+  # 2024-01-01 rule from the original Snowflake view, now used only by
+  # int_labatt_order_revenue.
+  labatt_start_date:                '2024-01-01'
+
   # Reporting cutoff: fct_order_revenue keeps only orders delivered on or after
   # this date. Raising it shrinks the mart; lowering it needs the upstream
   # models to cover the extra period too.
@@ -32,17 +41,8 @@ vars:
 models:
   charger_bi:
     +materialized: view
-    staging:
-      +schema: staging
     intermediate:
       +schema: intermediate
-    intermediate:
-      lane_rates:
-        +schema: intermediate
     marts:
       +materialized: table
       +schema: marts
-
-seeds:
-  charger_bi:
-    +schema: reference

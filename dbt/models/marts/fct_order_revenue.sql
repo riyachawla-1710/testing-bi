@@ -6,36 +6,41 @@
 -- fct_order_revenue
 --
 -- Port of the custom SQL embedded in the Tableau workbook
--- "Revenue Performance Analysis.twbx" (extract: 1,100,516 rows).
--- One row per order. This is the single table the Cube model sits on.
+-- "Revenue Performance Analysis.twbx". One row per order. This is the single
+-- table the Cube model sits on.
 --
--- Feeds four dashboards:
---   Revenue Performance Analysis
---   Volume Performance Analysis
---   Revenue Execution Analysis: Customer
---   Revenue Execution Analysis: SalesRep
+-- SCOPE: no currency conversion, no predicted revenue, no brokerage P&L.
+-- Everything here comes from PostgreSQL. There are no external dependencies.
 --
--- TWO DELIBERATE CHANGES FROM THE ORIGINAL ----------------------------------
+-- WHAT THAT MEANS, PLAINLY --------------------------------------------------
 --
--- 1. FX RATE DATE. The original ends its COALESCE chain with CURRENT_DATE:
+-- 1. MONEY IS IN THE ORDER'S OWN CURRENCY. There is no FX table, so nothing is
+--    converted. `order_currency` is therefore a MANDATORY slice on every
+--    revenue figure. Summing revenue without it adds Canadian dollars to US
+--    dollars to Mexican pesos and produces a number that means nothing. The
+--    Cube measures carry the same warning, and the pre-aggregations all group
+--    by currency so the rollups cannot hide the problem.
 --
---        COALESCE(OC.INVOICEDATE::DATE, O.PICKEDUPDATE, O.DELIVEREDDATE, CURRENT_DATE)
+-- 2. REVENUE EXISTS ONLY FOR INVOICED ORDERS. The original filled in a modelled
+--    figure for everything else. That model needed ORDERLANEREVENUEMAPPING,
+--    which is not in PostgreSQL, so it is gone. Non-invoiced orders keep their
+--    row and their dates - so order counts, lanes and volume are still complete
+--    - but `order_revenue` is NULL. Use `revenue_status` to separate them.
 --
---    Any order with none of those three dates was therefore revalued at
---    *today's* rate on every refresh, so historical revenue moved between runs.
---    That also makes the table impossible to build incrementally.
---    Here the fallback is removed: such orders get a NULL rate_date and
---    therefore NULL converted revenue, which is visible rather than silently
---    wrong. Set fx_fallback_to_today = true below to restore old behaviour
---    while you reconcile against Tableau.
+--    Knock-on effect worth knowing: the Labatt shuttle rule in
+--    int_order_charges_with_adjustment deliberately flips some INVOICED orders
+--    back to NOT INVOICED so they would pick up modelled revenue instead.
+--    With no model behind it, those orders now show NULL revenue rather than an
+--    estimate. Small population, but it is a real behaviour change.
 --
--- 2. ALIAS REUSE. Snowflake lets a SELECT reuse its own aliases (ORDERREVENUE
---    is defined and then multiplied by FX.CADRATE in the same select list, and
---    ORDERCURRENCY is used in a JOIN condition). Postgres does not allow
---    either. The query is therefore split into `base` -> `converted`.
+-- 3. NO BUSINESS UNIT, NO BROKERAGE. `businessunitcode` came only from the
+--    sales_report_access seed, which is removed. The brokerage P&L needed both
+--    FX and GLOBALBROKERAGEANALYSIS, so brokerage revenue, GP, carrier /
+--    transfer / trailer cost and the margin RAG tiles are all gone.
+--
+-- 4. ALIAS REUSE. Snowflake lets a SELECT reuse its own aliases; PostgreSQL does
+--    not. Hence `base` -> final select rather than one flat query.
 -- =============================================================================
-
-{% set fx_fallback_to_today = false %}
 
 with base as (
 
@@ -56,48 +61,28 @@ with base as (
         o.od_lane_distinct                                    as lane,
         og.pickedupdate,
         og.delivereddate,
+        oc.invoicedate,
 
-        case when oc.invoicestatus = 'INVOICED' then 'ACTUAL' else 'PREDICTED' end as revenuesource,
+        oc.invoicestatus,
+        case when oc.invoicestatus = 'INVOICED'
+             then 'INVOICED' else 'NOT INVOICED' end          as revenue_status,
 
-        case when oc.invoicestatus = 'INVOICED' then oc.totalchargesnotax
-             else pr.predicted_revenue end                    as orderrevenue,
-        case when oc.invoicestatus = 'INVOICED' then oc.currency
-             else pr.currency end                             as ordercurrency,
-        case when oc.invoicestatus = 'INVOICED' then oc.fsc
-             else 0 end                                       as orderfscrevenue,
+        -- Single-character code as stored: C = CAD, U = USD, P = MXN.
+        oc.currency                                           as order_currency_code,
 
-        b.purebrokerage                                       as brokerageorder,
-        b.tshybridbrokerage,
+        -- Revenue only where there is an invoice behind it. NULL otherwise,
+        -- which is visible rather than silently zero.
+        case when oc.invoicestatus = 'INVOICED'
+             then oc.totalchargesnotax end                    as order_revenue,
+        case when oc.invoicestatus = 'INVOICED'
+             then oc.fsc end                                  as order_fsc_revenue,
 
-        oc.manualchargesnotaxcad                              as raw_manualcad,
-        oc.manualchargesnotaxusd                              as raw_manualusd,
-        oc.manualchargesnotaxmxn                              as raw_manualmxn,
-
-        b.brokeragegpcad,
-        b.brokeragegpusd,
-        b.brokeragerevenuecad,
-        b.brokeragerevenueusd,
-        b.carriercostusd,
-        b.carriercostcad,
-        b.transfercostusd,
-        b.transfercostcad,
-        b.trailercostusd,
-        b.trailercostcad,
-        b.tsrateusd,
-        b.tsratecad,
-
-        sra.businessunitcode,
-        sra.businessunitdescription,
-
-        -- the FX date, with the CURRENT_DATE fallback removed (see header)
-        cast(
-            coalesce(
-                cast(oc.invoicedate as date),
-                o.pickedupdate,
-                o.delivereddate
-                {%- if fx_fallback_to_today %}, current_date {%- endif %}
-            ) as date
-        )                                                     as rate_date
+        -- Manual charges are already stored per currency upstream, so they need
+        -- no conversion - but an order can carry manual charges in a currency
+        -- other than its own. Both facts are surfaced below.
+        coalesce(oc.manualchargesnotaxcad, 0)                 as manual_charges_cad,
+        coalesce(oc.manualchargesnotaxusd, 0)                 as manual_charges_usd,
+        coalesce(oc.manualchargesnotaxmxn, 0)                 as manual_charges_mxn
 
     from {{ ref('int_opd_miles') }} o
 
@@ -107,63 +92,9 @@ with base as (
     left join {{ ref('int_order_charges_with_adjustment') }} oc
       on oc.orderguid = o.orderguid
 
-    left join {{ ref('int_predicted_revenue') }} pr
-      on pr.orderguid = o.orderguid
-
-    left join {{ ref('sales_report_access') }} sra
-      on upper(sra.username) = upper(oc.salesrep)
-
-    left join {{ ref('int_ts_hybrid_brokerage_pnl') }} b
-      on b.orderguid = o.orderguid
-
     where o.customer not ilike '%TEST%'
       -- Reporting cutoff. See reporting_start_date in dbt_project.yml.
-      -- NOTE: the YoY dashboard tiles compare 2024 / 2025 / 2026. With this set
-      -- to 2025-01-01 the 2024 series disappears from those charts. Lower the
-      -- var if that comparison is still wanted.
       and og.delivereddate >= date '{{ var("reporting_start_date") }}'
-
-),
-
--- Pivoted rate matrix, used for the tri-currency manual-charge roll-up.
--- Port of the inline FXM subquery in the original.
-fx_matrix as (
-    select
-        calendardate,
-        max(case when sourcecurrencycode = 'P' then usdrate end) as ptou,
-        max(case when sourcecurrencycode = 'P' then cadrate end) as ptoc,
-        max(case when sourcecurrencycode = 'U' then cadrate end) as utoc,
-        max(case when sourcecurrencycode = 'C' then usdrate end) as ctou
-    from {{ ref('int_fx_rates_daily') }}
-    group by calendardate
-),
-
-converted as (
-
-    select
-        b.*,
-
-        b.orderrevenue    * fx.cadrate  as orderrevenuecad,
-        b.orderrevenue    * fx.usdrate  as orderrevenueusd,
-        b.orderfscrevenue * fx.cadrate  as orderfscrevenuecad,
-        b.orderfscrevenue * fx.usdrate  as orderfscrevenueusd,
-
-        b.raw_manualcad
-          + b.raw_manualusd * fxm.utoc
-          + b.raw_manualmxn * fxm.ptoc  as manualchargesnotaxcad,
-
-        b.raw_manualcad * fxm.ctou
-          + b.raw_manualusd
-          + b.raw_manualmxn * fxm.ptou  as manualchargesnotaxusd,
-
-        fx.forexsource
-
-    from base b
-    left join {{ ref('int_fx_rates_daily') }} fx
-           on fx.sourcecurrencycode = b.ordercurrency
-          and fx.calendardate       = b.rate_date
-    left join fx_matrix fxm
-           on fxm.calendardate      = b.rate_date
 
 )
 
@@ -172,8 +103,6 @@ select
     orderguid,
     customer,
     salesrep,
-    businessunitcode,
-    businessunitdescription,
     pickcity,
     pickstate,
     pickcountry,
@@ -184,33 +113,46 @@ select
     spot_status,
     pickedupdate,
     delivereddate,
-    rate_date,
-    revenuesource,
-    ordercurrency,
-    forexsource,
+    invoicedate,
+    invoicestatus,
+    revenue_status,
 
-    orderrevenue,
-    orderrevenuecad,
-    orderrevenueusd,
-    orderfscrevenue,
-    orderfscrevenuecad,
-    orderfscrevenueusd,
-    manualchargesnotaxcad,
-    manualchargesnotaxusd,
+    order_currency_code,
+    case order_currency_code
+         when 'C' then 'CAD'
+         when 'U' then 'USD'
+         when 'P' then 'MXN'
+    end                                                       as order_currency,
 
-    brokerageorder,
-    tshybridbrokerage,
-    brokeragegpcad,
-    brokeragegpusd,
-    brokeragerevenuecad,
-    brokeragerevenueusd,
-    carriercostcad,
-    carriercostusd,
-    transfercostcad,
-    transfercostusd,
-    trailercostcad,
-    trailercostusd,
-    tsratecad,
-    tsrateusd
+    order_revenue,
+    order_fsc_revenue,
 
-from converted
+    -- Revenue net of fuel surcharge. totalchargesnotax already includes fsc.
+    case when order_revenue is not null
+         then order_revenue - coalesce(order_fsc_revenue, 0)
+    end                                                       as order_revenue_ex_fsc,
+
+    -- Manual charges expressed in the order's own currency, so this can be
+    -- added to order_revenue without conversion.
+    case order_currency_code
+         when 'C' then manual_charges_cad
+         when 'U' then manual_charges_usd
+         when 'P' then manual_charges_mxn
+         else 0
+    end                                                       as manual_charges,
+
+    -- True when the order carries manual charges billed in some OTHER currency.
+    -- Those amounts are excluded from `manual_charges` because there is no rate
+    -- to convert them with. This flag is how you find them instead of losing
+    -- them quietly.
+    (
+        case order_currency_code when 'C' then 0 else manual_charges_cad end
+      + case order_currency_code when 'U' then 0 else manual_charges_usd end
+      + case order_currency_code when 'P' then 0 else manual_charges_mxn end
+    ) <> 0                                                    as manual_charges_currency_mismatch,
+
+    manual_charges_cad,
+    manual_charges_usd,
+    manual_charges_mxn
+
+from base

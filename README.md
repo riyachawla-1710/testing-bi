@@ -46,32 +46,45 @@ The tutorial model (`base_orders`, `line_items`, `products`, `users`, plus the
 
 ## The four views
 
-| View | Replaces |
+| View | Replaces | Currency slice required? |
+|---|---|---|
+`revenue_by_customer` | Revenue Performance Analysis | **Yes** |
+`volume` | Volume Performance Analysis | No — no money measures |
+`execution` | Revenue Execution Analysis: Customer | **Yes** (scope changed, see below) |
+`revenue_by_salesrep` | Revenue Execution Analysis: SalesRep | **Yes** |
+
+Ten duplicated Tableau worksheets collapse into a choice of row dimension.
+
+`execution` no longer carries brokerage margin — see the note at the top of
+`model/views/execution.yml`.
+
+## Scope: three capabilities deliberately cut
+
+So the stack has **zero external dependencies** and can ship today:
+
+| Cut | What it costs you |
 |---|---|
-`revenue_by_customer` | Revenue Performance Analysis |
-`volume` | Volume Performance Analysis |
-`execution` | Revenue Execution Analysis: Customer |
-`revenue_by_salesrep` | Revenue Execution Analysis: SalesRep |
+**Currency conversion** | Money is in each order's own currency. `currency` is a **mandatory slice** on every revenue measure — an ungrouped total adds CAD to USD to MXN. |
+**Predicted revenue** | Revenue exists only for INVOICED orders. Non-invoiced orders keep their row and dates, so volume and lane analysis stay complete, but revenue is NULL. |
+**Brokerage P&L** | No brokerage revenue, GP, GP%, carrier/transfer/trailer/TS cost, margin RAG tiles, or Asset-vs-Brokerage split. |
 
-Ten duplicated Tableau worksheets collapse into `category` as a dimension plus
-a choice of row dimension.
+Business unit is gone with them — it came only from the removed
+`sales_report_access` seed.
 
-## Three things done differently to Tableau
+All of it is recoverable; `dbt/README.md` lists exactly which source objects
+each one needs, and the deleted models are in git history at `1792a28`.
+
+## Two things still done differently to Tableau
 
 **Three named revenue measures instead of one parameter.** The workbook had a
 single measure whose meaning changed with the `fsc Revenue Toggle` parameter,
 which defaults to `fsc Only` — so the dashboards may have been showing
-fuel-surcharge revenue alone. Now: `revenue_fsc_only_*`, `revenue_incl_fsc_*`,
-`revenue_ex_fsc_*`.
+fuel-surcharge revenue alone. Now: `revenue_fsc_only`, `revenue_incl_fsc`,
+`revenue_ex_fsc`.
 
-**Ratios computed after aggregation.** `brokerage_gp_pct` divides the sums.
-Computing it per order and averaging gives a different, wrong number — the most
-common error when porting Tableau calcs.
-
-**Row-level security is enforced, not advisory.** `business_unit` was an open
-Tableau filter any viewer could widen. The `access_policy` on `order_revenue`
-filters rows by a `business_unit` user attribute and hides cost measures from
-the `sales_rep` role.
+**Ratios computed after aggregation.** `revenue_per_invoiced_order` and
+`fsc_share_of_revenue` divide the sums. Computing per order and averaging gives
+a different, wrong number — the most common error when porting Tableau calcs.
 
 ## Building the model on PostgreSQL only
 
@@ -83,7 +96,7 @@ and turns that into cubes. So the order is fixed:
 not exist until dbt has run:
 
 ```bash
-cd dbt && dbt deps && dbt seed && dbt build
+cd dbt && dbt deps && dbt build
 ```
 
 **2. Give Cube the connection.** `PG_*` in Cube Cloud → Settings →
@@ -120,10 +133,10 @@ Settings → dbt integration at this repo's `dbt/` directory.
 Worth knowing before you rely on it:
 
 - It generates **dimensions, not measures**. Every number the dashboards
-  actually show — the three fsc revenue variants, `brokerage_gp_pct`,
-  `margin_status`, exact `count_distinct` on `orderno` — is business logic that
-  was inside Tableau. Cube cannot read that from a table shape. It stays
-  hand-written.
+  actually show — the three fsc revenue variants, `revenue_per_invoiced_order`,
+  `fsc_share_of_revenue`, exact `count_distinct` on `orderno` — is business
+  logic that was inside Tableau. Cube cannot read that from a table shape. It
+  stays hand-written.
 - dbt `metrics` and `semantic_models` are **ignored**.
 - Regenerated files are **overwritten on every re-sync**. Customise with
   `extends:` in a separate file, never by editing a generated one.
@@ -131,52 +144,58 @@ Worth knowing before you rely on it:
   This is why `data_type` is declared on every column in
   `dbt/models/marts/_models.yml` — do not remove it.
 
-So: (b) is a fast way to get a skeleton over the other 20-odd dbt models. For
+So: (b) is a fast way to get a skeleton over the other ten dbt models. For
 the revenue dashboards, (a) is already further along than (b) can get.
 
 ## Validating
 
 ```bash
 cd dbt && dbt deps
-dbt seed
-dbt build                                          # builds `reporting` in Postgres
-dbt compile --select validate_dashboard_numbers    # expect 4,096 / 7,450,826.44
-dbt compile --select validate_against_snowflake    # run the output in Snowsight
+dbt build                                          # 11 models, no blockers
+dbt compile --select validate_dashboard_numbers
 ```
 
-The last one is the only remaining Snowflake step, and it is a one-off
-number-for-number diff pasted into Snowsight — not a connection Cube or dbt
-holds.
+The old Tableau target of 4,096 orders / $7,450,826.44 **cannot be reproduced**
+and should not be chased — it assumed USD conversion, predicted revenue and a
+business-unit filter, none of which exist here. Use the analysis as a
+regression baseline instead.
 
-Then in a Cube workbook (Semantic SQL tab):
+Then in a Cube workbook (Semantic SQL tab) — note the `currency` in the GROUP BY:
 
 ```sql
-SELECT MEASURE(order_count), MEASURE(revenue_incl_fsc_usd)
+SELECT currency,
+       MEASURE(order_count),
+       MEASURE(invoiced_order_count),
+       MEASURE(revenue_incl_fsc)
 FROM revenue_by_customer
 WHERE sales_rep = 'NICK BAUMER'
-  AND business_unit = 'BO HOME'
-  AND delivered_date >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '12 months');
+  AND delivered_date >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '12 months')
+GROUP BY currency;
 ```
 
 ## Open decisions
 
-1. Fuel-surcharge default — is `fsc Only` what the dashboard should show?
-2. FX rate date when an order has no invoice, pickup or delivery date. The dbt
-   port removes the original `CURRENT_DATE` fallback, which made history move
-   between refreshes.
-3. Asset vs Brokerage — three definitions exist; `category` implements the
-   Tableau default, under which a pure-brokerage non-TS-hybrid order counts as
-   Asset.
-4. Whether to enforce the `>= 2024-01-01` / no-future-dates guard that the
-   workbook defines and applies to nothing.
+1. **Fuel-surcharge default** — is `fsc Only` what the dashboard should show?
+2. **The unused date guard** — the workbook defines a `>= 2024-01-01` /
+   no-future-dates guard and applies it to no sheet. A warn-level dbt test
+   surfaces what it would have caught.
+3. **The 2025-01-01 cutoff** — the YoY tiles compare 2024/2025/2026, so with
+   this cutoff the 2024 series is empty.
+4. **Stranded manual charges** — some orders carry manual charges in a currency
+   other than their own, and those amounts are dropped because there is no rate
+   to convert them. `currency_mismatch_order_count` counts them. If the total is
+   material, FX is not optional after all.
 
-## Not ported yet
+## Recoverable, not ported
 
-`OPD_MILES_VW`, `PREDICTED_REVENUE_BS_VW`, `GLOBALBROKERAGEANALYSIS`,
-`ORDEREXTRACHARGES_VW`, `ORDERCARTAPORTELIFECYCLE`. Declared as sources in
-`dbt/models/sources/_sources.yml`. `fct_order_revenue` cannot build end-to-end
-on Postgres until the first two are done.
+Five PostgreSQL-absent objects, each the sole dependency of a deleted model:
 
-Also note `WORKDAYBI.ANALYTICS.BOCDAILYFXRATES` is **not** Postgres data. It is
-the only non-Postgres dependency in this chain, and it blocks every currency
-conversion on the dashboard.
+| Object | Was needed by | Notes |
+|---|---|---|
+`ORDERLANEREVENUEMAPPING` | the ten lane-rate models | Derived from Postgres data. Cheapest of the five to port. |
+`ORDERCHARGES_BS_VW` | `int_predicted_revenue` | Reads `OPSYNC.BILLINGSYSTEM`. Needs OPSYNC landed. |
+`BOCDAILYFXRATES` | `int_fx_rates_daily` | Workday. Or pull the Bank of Canada valet API. |
+`GLOBALBROKERAGEANALYSIS` | `int_ts_hybrid_brokerage_pnl` | Not a view port — needs a new contract/trip costing tier (11 tables). |
+`ORDERCARTAPORTELIFECYCLE` | `int_ts_hybrid_brokerage_pnl` | Not a view port — the view is self-referential and emits different columns than the table. |
+
+Full analysis and the deleted model SQL: git history at commit `1792a28`.

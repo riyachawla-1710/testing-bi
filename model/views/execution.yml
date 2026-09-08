@@ -1,33 +1,44 @@
 # Powers "Revenue Execution Analysis: Customer".
-# The Asset / Brokerage split plus brokerage margin.
+#
+# SCOPE CHANGED. This view used to carry the Asset / Brokerage split and the
+# brokerage margin block - brokerage revenue, gross profit, GP%, carrier /
+# transfer / trailer / TS-leg cost, and the GREEN/YELLOW/RED margin tiles.
+# All of that came from int_ts_hybrid_brokerage_pnl, which needed both FX rates
+# and GLOBALBROKERAGEANALYSIS. Neither is in PostgreSQL, so the model is gone
+# and so are those measures. The Asset / Brokerage `category` dimension went
+# with it - it was derived from the same table's tshybridbrokerage flag.
+#
+# What is left is invoicing execution: how much of the order book has actually
+# converted to invoiced revenue, and what it is worth per order. That is a
+# genuinely useful question and it answers entirely from PostgreSQL. It is not
+# the same dashboard.
 views:
   - name: execution
     description: >
-      Asset vs Brokerage execution, with brokerage cost, gross profit and
-      margin status. Cost measures are excluded for the sales_rep role by the
-      access policy on the underlying cube.
+      Invoicing execution by customer and geography - invoiced vs non-invoiced
+      order counts, revenue per invoiced order, and fuel-surcharge share, in
+      the order's own currency. Always group or filter by `currency`.
+      Brokerage margin is NOT here; see the note at the top of this file.
     cubes:
       - join_path: order_revenue
         includes:
+          - currency
           - customer
           - sales_rep
-          - business_unit
-          - category
           - spot_flag
-          - revenue_source
+          - revenue_status
           - pickup_state
           - pickup_country
           - delivery_state
           - delivery_country
           - delivered_date
+          - invoice_date
           - order_count
-          - revenue_incl_fsc_usd
-          - brokerage_revenue_usd
-          - brokerage_gp_usd
-          - brokerage_gp_pct
-          - margin_status
-          - carrier_cost_usd
-          - transfer_cost_usd
-          - trailer_cost_usd
-          - ts_leg_cost_usd
-          - total_order_cost_usd
+          - invoiced_order_count
+          - revenue_incl_fsc
+          - revenue_ex_fsc
+          - revenue_fsc_only
+          - revenue_per_invoiced_order
+          - fsc_share_of_revenue
+          - manual_charges_currency_mismatch
+          - currency_mismatch_order_count

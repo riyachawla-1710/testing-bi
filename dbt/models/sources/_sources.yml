@@ -106,78 +106,22 @@ sources:
           Point-to-point mileage and minutes between locations. int_opd_miles
           tries A->B, then B->A, then both parent locations.
 
-  # ---------------------------------------------------------------------------
-  # NOT IN POSTGRES YET.
-  #
-  # Four objects that do not exist in Postgres yet. Each needs a decision, and
-  # until it has one, `dbt build` cannot complete against Postgres alone.
-  # Listed here with its disposition rather than hidden.
-  #
-  # The schema below is a placeholder - override it per environment with
-  # `--vars` or a profile target once each object has a real home.
-  # ---------------------------------------------------------------------------
-  - name: pending
-    schema: "{{ var('pending_schema', 'pending') }}"
-    description: >
-      Objects with no PostgreSQL home yet. NOT a Snowflake connection - these
-      are placeholders so the DAG is explicit about what is missing.
-    tables:
-
-      # --- portable: derived from Postgres data, just not ported yet ---------
-      - name: orderlanerevenuemapping
-        description: >
-          PORTABLE. One row per historically invoiced order with lane, distance
-          band, direction and charges. The corpus all ten int_lane_rate_by_*
-          models compute from. Derived from Postgres data - porting it makes
-          the whole lane-rate layer local. Biggest single win left.
-      - name: globalbrokerageanalysis
-        description: >
-          PORTABLE BUT LARGE - its own project, not a view port. 17,596 chars,
-          and its dependency list brings in a whole new tier this repo does not
-          model yet: the contract and trip costing layer.
-          New sources it needs: CHARGERFLEET.TRIPSVC.{contract, contractcategory,
-          contractcharge, contractchargetype, trip, tripcategory, triprole},
-          CARRIERSVC.CARRIER, FLEETSVC.DIVISION, PROBILLSVC.ORDERCATEGORY,
-          USERSVC.USEREMAILHISTORY - plus BI.ANALYTICS.EVENTFORPROBILL and
-          MARKETPLACE_SPOTRATE_VW.
-          Only int_ts_hybrid_brokerage_pnl needs it, and that only feeds the
-          Revenue Execution dashboards - NOT Revenue Performance. Safe to defer.
-      - name: ordercartaportelifecycle
-        description: >
-          NOT A SIMPLE VIEW PORT - investigated 2026-09-08.
-          The TABLE (138,033 rows) supplies matchrateinbound / matchrateoutbound
-          to int_ts_hybrid_brokerage_pnl. But ORDERCARTAPORTELIFECYCLE_VW is
-          SELF-REFERENTIAL: it reads the very table it is named after, and
-          produces a DIFFERENT set of columns (invoice/CFDI reporting fields),
-          none of which are the match rates. So porting that view does not
-          unblock the brokerage P&L.
-          It also pulls in CHARGERFLEET.INVOICINGMXSVC - eight tables of Mexican
-          CFDI/Carta Porte invoicing (comprobante, cartaporte, emisor, receptor,
-          moneda, cartaporteubicacion, cartaporterequest, invoicelocation) -
-          plus BI.ANALYTICS.CARTAPORTEWDINVOICES_VW.
-          NEXT STEP: find the job that actually POPULATES the table (a task or
-          stored procedure, not this view) and port that instead.
-
-      # --- NOT portable: these read other systems ---------------------------
-      - name: ordercharges_bs_vw
-        description: >
-          NOT PORTABLE AS-IS (7,532 chars). Reads OPSYNC.BILLINGSYSTEM.ORDERCHARGE.
-          Powers the "BILLING SYSTEM" step of the predicted-revenue cascade.
-          Needs OPSYNC data landed somewhere Postgres can reach, or the step
-          dropped.
-
-  # ---------------------------------------------------------------------------
-  # Workday FX. Also not Postgres.
-  # ---------------------------------------------------------------------------
-  - name: fx
-    schema: "{{ var('fx_schema', 'pending') }}"
-    description: >
-      Bank of Canada daily rates, currently only in WORKDAYBI. Blocks every
-      CAD/USD conversion on the dashboard. Small daily table - land it in
-      Postgres, or pull it from the Bank of Canada valet API on a schedule.
-    tables:
-      - name: bocdailyfxrates
-        description: >
-          Columns "USD/CAD" and "MXN/CAD" are quoted because of the slash.
-          Rename them on landing (usd_cad, mxn_cad) and simplify
-          int_fx_rates_daily accordingly.
+# =============================================================================
+# EVERY SOURCE IN THIS FILE IS A PLAIN POSTGRESQL SCHEMA.
+#
+# There is no `pending` group and no `fx` group any more. The five objects that
+# used to live there - orderlanerevenuemapping, globalbrokerageanalysis,
+# ordercartaportelifecycle, ordercharges_bs_vw and bocdailyfxrates - were each
+# read by exactly one thing, and all of those things are gone:
+#
+#   orderlanerevenuemapping   -> the ten int_lane_rate_by_* models   (deleted)
+#   ordercharges_bs_vw        -> int_predicted_revenue               (deleted)
+#   globalbrokerageanalysis   -> int_ts_hybrid_brokerage_pnl         (deleted)
+#   ordercartaportelifecycle  -> int_ts_hybrid_brokerage_pnl         (deleted)
+#   bocdailyfxrates           -> int_fx_rates_daily                  (deleted)
+#
+# So `dbt build` now has zero unresolvable dependencies. If you re-introduce
+# predicted revenue, brokerage P&L or currency conversion later, these are the
+# five objects that have to land in Postgres first. Their full analysis is in
+# git history at commit 1792a28.
+# =============================================================================

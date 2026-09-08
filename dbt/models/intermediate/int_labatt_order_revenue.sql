@@ -67,7 +67,7 @@ with orders_base as (
     where o.isrowdeleted = 0
       and o.orderstatusid <> '{{ var("order_status_cancelled_id") }}'
       and opd.customer = {{ labatt }}
-      and opd.pickedupdate >= date '{{ var("brokerage_start_date") }}'
+      and opd.pickedupdate >= date '{{ var("labatt_start_date") }}'
       and tb.orderid is null
 ),
 
