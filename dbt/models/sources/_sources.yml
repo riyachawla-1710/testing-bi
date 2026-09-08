@@ -1,39 +1,60 @@
 version: 2
 
+# =============================================================================
+# SOURCES
+#
+# PostgreSQL (AlloyDB) is THE source. Everything below with no `database:` key
+# resolves to the database in your dbt profile - i.e. one Postgres database,
+# with one schema per microservice.
+#
+# There is deliberately NO `database: CHARGERFLEET` anywhere. That was
+# Snowflake's three-part naming; in Postgres these are plain schemas.
+#
+# `quoting: identifier: true` is set where a table name is a reserved word
+# (`order`, `user`) so dbt emits "order" rather than order.
+# =============================================================================
+
 sources:
 
-  # ===========================================================================
-  # CHARGERFLEET - the operational Postgres data, replicated into Snowflake.
-  # These are the real base tables. When you move off Snowflake, these become
-  # your Postgres schemas directly (probillsvc, invoicesvc, customersvc, ...).
-  # ===========================================================================
+  # ---------------------------------------------------------------------------
+  # The operational database. All of it, directly from Postgres.
+  # ---------------------------------------------------------------------------
   - name: probillsvc
-    database: CHARGERFLEET
-    schema: PROBILLSVC
-    description: Order and probill service. Postgres-derived.
+    schema: probillsvc
+    description: Orders, probills, charges, tax. PostgreSQL.
+    quoting:
+      identifier: true
     tables:
       - name: order
-        identifier: '"ORDER"'   # reserved word - quoted in Snowflake AND Postgres
-        description: One row per order. isrowdeleted = 0 for live rows.
+        description: One row per order. isrowdeleted = 0 for live rows. Reserved word - quoted.
       - name: orderstatus
+        quoting: { identifier: false }
       - name: ordercharge
+        quoting: { identifier: false }
       - name: orderchargetype
         description: Classifies a charge as Freight Rate / Fuel Surcharge / Extra Charge.
+        quoting: { identifier: false }
       - name: orderuser
-        description: Maps orders to users by roleid (sales rep, CSR, account manager...).
+        description: Maps orders to users by roleid.
+        quoting: { identifier: false }
       - name: salesrep
+        quoting: { identifier: false }
       - name: probill
+        quoting: { identifier: false }
       - name: taxcodes
+        quoting: { identifier: false }
       - name: taxitems
+        quoting: { identifier: false }
       - name: pickdeldates
         description: Planned and actual pickup/delivery datetimes per probill.
+        quoting: { identifier: false }
       - name: po
         description: Purchase orders. pobillingstatusid drives the NON BILLABLE PO rule.
+        quoting: { identifier: false }
 
   - name: invoicesvc
-    database: CHARGERFLEET
-    schema: INVOICESVC
-    description: Invoicing service. Postgres-derived.
+    schema: invoicesvc
+    description: Invoicing. PostgreSQL.
     tables:
       - name: invoice
       - name: invoicecharge
@@ -42,16 +63,27 @@ sources:
       - name: currency
         description: Currency short codes - C = CAD, U = USD, P = MXN.
 
+  - name: customersvc
+    schema: customersvc
+    tables:
+      - name: customer
+
+  - name: usersvc
+    schema: usersvc
+    quoting:
+      identifier: true
+    tables:
+      - name: user
+        description: Reserved word - quoted.
+
   - name: trailersvc
-    database: CHARGERFLEET
-    schema: TRAILERSVC
+    schema: trailersvc
     tables:
       - name: trailertype
-        description: Trailer type name - REEFER matching drives equipmenttype.
+        description: Trailer type name. REEFER matching drives equipmenttype.
 
   - name: fleetsvc
-    database: CHARGERFLEET
-    schema: FLEETSVC
+    schema: fleetsvc
     tables:
       - name: location
         description: Stop locations with lat/lon and parent location.
@@ -59,79 +91,74 @@ sources:
         description: State/province codes. QR->QA, PQ->QC, DF->MX are remapped.
 
   - name: addresssvc
-    database: CHARGERFLEET
-    schema: ADDRESSSVC
+    schema: addresssvc
     tables:
       - name: traveltime
         description: >
           Point-to-point mileage and minutes between locations. int_opd_miles
-          tries A->B, then B->A, then the parent locations both ways.
+          tries A->B, then B->A, then both parent locations.
 
-  - name: customersvc
-    database: CHARGERFLEET
-    schema: CUSTOMERSVC
-    tables:
-      - name: customer
-
-  - name: usersvc
-    database: CHARGERFLEET
-    schema: USERSVC
-    tables:
-      - name: user
-        identifier: '"USER"'    # reserved word
-
-  # ===========================================================================
-  # NOT Postgres. These are the reason Snowflake cannot simply be deleted.
-  # Each one needs a decision about where it lands post-migration.
-  # ===========================================================================
-  - name: workdaybi
-    database: WORKDAYBI
-    schema: ANALYTICS
+  # ---------------------------------------------------------------------------
+  # NOT IN POSTGRES YET.
+  #
+  # Six objects that live only in Snowflake. Each needs a decision, and until
+  # it has one, `dbt build` cannot complete against Postgres alone. Listed
+  # here with its disposition rather than hidden.
+  #
+  # The schema below is a placeholder - override it per environment with
+  # `--vars` or a profile target once each object has a real home.
+  # ---------------------------------------------------------------------------
+  - name: pending
+    schema: "{{ var('pending_schema', 'pending') }}"
     description: >
-      Workday-sourced. NOT in Postgres. Blocks the FX conversion, and therefore
-      blocks every CAD/USD number on the revenue dashboard.
+      Objects with no PostgreSQL home yet. NOT a Snowflake connection - these
+      are placeholders so the DAG is explicit about what is missing.
+    tables:
+
+      # --- portable: derived from Postgres data, just not ported yet ---------
+      - name: orderlanerevenuemapping
+        description: >
+          PORTABLE. One row per historically invoiced order with lane, distance
+          band, direction and charges. The corpus all ten int_lane_rate_by_*
+          models compute from. Derived from Postgres data - porting it makes
+          the whole lane-rate layer local. Biggest single win left.
+      - name: globalbrokerageanalysis
+        description: >
+          PORTABLE (17,596 chars). Feeds int_ts_hybrid_brokerage_pnl, which
+          only the Revenue Execution dashboards need - not Revenue Performance.
+      - name: orderextracharges_vw
+        description: PORTABLE (5,375 chars). Extra-charge detail strings.
+      - name: tonuordersbi_vw
+        description: PORTABLE. TONU (truck ordered not used) orders.
+      - name: keurig_shuntingrevenue_vw
+        description: PORTABLE (485 chars). Keurig shunting rates, last cascade step.
+      - name: labatt_orderrevenue
+        description: >
+          PORTABLE. Manual Labatt revenue override. Drives the UNION ALL branch
+          of int_order_charges_with_adjustment. Small - may belong as a seed.
+      - name: ordercartaportelifecycle
+        description: PORTABLE. TS match rates for the brokerage P&L.
+
+      # --- NOT portable: these read other systems ---------------------------
+      - name: ordercharges_bs_vw
+        description: >
+          NOT PORTABLE AS-IS (7,532 chars). Reads OPSYNC.BILLINGSYSTEM.ORDERCHARGE.
+          Powers the "BILLING SYSTEM" step of the predicted-revenue cascade.
+          Needs OPSYNC data landed somewhere Postgres can reach, or the step
+          dropped.
+
+  # ---------------------------------------------------------------------------
+  # Workday FX. Also not Postgres.
+  # ---------------------------------------------------------------------------
+  - name: fx
+    schema: "{{ var('fx_schema', 'pending') }}"
+    description: >
+      Bank of Canada daily rates, currently only in WORKDAYBI. Blocks every
+      CAD/USD conversion on the dashboard. Small daily table - land it in
+      Postgres, or pull it from the Bank of Canada valet API on a schedule.
     tables:
       - name: bocdailyfxrates
         description: >
-          Bank of Canada daily rates. Columns "USD/CAD" and "MXN/CAD" are quoted
-          because of the slash. Small table - easiest fix is to land it in
-          Postgres, or pull it from the Bank of Canada valet API directly.
-
-  # ===========================================================================
-  # BI.ANALYTICS objects this port depends on but does NOT yet reproduce.
-  # Declared as sources so the DAG is honest about the boundary.
-  # ===========================================================================
-  - name: bi_analytics
-    database: BI
-    schema: ANALYTICS
-    description: Existing Snowflake analytics layer. Each table below is a separate port.
-    tables:
-      - name: salesreportaccess
-        description: >
-          TABLE (59 rows). Sales rep -> business unit mapping. This is the table
-          that should drive row-level security in Cube, replacing the open
-          BUSINESSUNITCODE filter in Tableau.
-      - name: labatt_orderrevenue
-        description: Manual Labatt revenue override. Drives the UNION ALL branch of the charges view.
-      - name: orderextracharges_vw
-        description: Extra-charge detail strings. TODO port (5,375 chars).
-      - name: globalbrokerageanalysis
-        description: Feeds the brokerage P&L. TODO port (17,596 chars) - large.
-      - name: ordercartaportelifecycle
-        description: Supplies TS match rates (inbound/outbound) to the brokerage P&L.
-      - name: ordercharges_bs_vw
-        description: >
-          Charges from the OPSYNC billing system. READS OPSYNC.BILLINGSYSTEM -
-          NOT Postgres. Hard blocker for the 'BILLING SYSTEM' step of the
-          predicted-revenue cascade. TODO port (7,532 chars).
-      - name: tonuordersbi_vw
-        description: TONU (truck ordered not used) orders. TODO port.
-      - name: keurig_shuntingrevenue_vw
-        description: Keurig shunting rates, last step of the cascade. TODO port (485 chars).
-
-      - name: orderlanerevenuemapping
-        description: >
-          The single table behind all ten lane-rate models. One row per
-          historically invoiced order with its lane, distance band, direction
-          and charges - the corpus the benchmarks are computed from.
-          TODO: port this too, and the lane-rate layer becomes fully local.
+          Columns "USD/CAD" and "MXN/CAD" are quoted because of the slash.
+          Rename them on landing (usd_cad, mxn_cad) and simplify
+          int_fx_rates_daily accordingly.

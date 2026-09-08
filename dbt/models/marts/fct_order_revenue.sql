@@ -110,7 +110,7 @@ with base as (
     left join {{ ref('int_predicted_revenue') }} pr
       on pr.orderguid = o.orderguid
 
-    left join {{ source('bi_analytics', 'salesreportaccess') }} sra
+    left join {{ ref('sales_report_access') }} sra
       on upper(sra.username) = upper(oc.salesrep)
 
     left join {{ ref('int_ts_hybrid_brokerage_pnl') }} b

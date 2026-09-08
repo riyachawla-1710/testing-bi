@@ -11,8 +11,8 @@ Read out of Snowflake on 2026-09-08 with `GET_DDL`, then ported.
 ## Lineage
 
 ```
-CHARGERFLEET (Postgres-derived)          WORKDAYBI (NOT Postgres)
-  probillsvc.order, ordercharge,           analytics.bocdailyfxrates
+PostgreSQL / AlloyDB  (THE source)       FX - not in Postgres yet
+  probillsvc.order, ordercharge,           bocdailyfxrates
   orderchargetype, orderuser, salesrep,          │
   orderstatus, probill, taxcodes, taxitems       │
   invoicesvc.invoice, invoicecharge,             │
@@ -121,6 +121,47 @@ Note the lane-rate models use **rolling 3- and 6-month windows relative to
 revenue for a *past* order changes as the window moves forward. Historical
 revenue is therefore not stable for un-invoiced orders, separately from the FX
 issue. Worth raising with the revenue owner.
+
+## PostgreSQL is the source
+
+Every source in `models/sources/_sources.yml` is a **plain Postgres schema** —
+`probillsvc`, `invoicesvc`, `customersvc`, `usersvc`, `trailersvc`, `fleetsvc`,
+`addresssvc`. There is deliberately **no `database:` key** on any of them, so
+they resolve to whatever database your profile connects to.
+
+An earlier version carried `database: CHARGERFLEET` — Snowflake's three-part
+naming. That has been removed. `order` and `user` are reserved words in
+Postgres too, so those two tables set `quoting: identifier: true`.
+
+Snowflake is reference only. Read view DDL from it, then delete the connection.
+Validate the port by comparing **final numbers** (`analyses/`), not by running
+dbt against Snowflake — the source definitions no longer resolve there.
+
+### Seeds
+
+`SALESREPORTACCESS` was a 59-row hand-maintained config table in Snowflake.
+It is now **`seeds/sales_report_access.csv`** — version-controlled, so changes
+arrive as pull requests. Data quality preserved as found and documented in
+`seeds/_seeds.yml`: the Snowflake table stored the literal string `'NULL'` in
+several id columns, and several `userid` values had trailing spaces.
+
+### What still isn't in Postgres
+
+Grouped under the `pending` source so the DAG is explicit rather than silent.
+Override its schema with `--vars '{pending_schema: your_schema}'` as each object
+lands.
+
+| Object | Portable? | Notes |
+|---|---|---|
+`orderlanerevenuemapping` | **Yes** | The corpus behind all ten lane-rate models. **Biggest single win left** — port it and that whole layer is local. |
+`globalbrokerageanalysis` | Yes | 17,596 chars. Only the Revenue Execution dashboards need it. |
+`orderextracharges_vw` | Yes | 5,375 chars. |
+`labatt_orderrevenue` | Yes | Small — may belong as a seed. |
+`tonuordersbi_vw`, `keurig_shuntingrevenue_vw`, `ordercartaportelifecycle` | Yes | Small. |
+`ordercharges_bs_vw` | **No** | Reads `OPSYNC.BILLINGSYSTEM`. Needs OPSYNC landed, or the cascade step dropped. |
+`bocdailyfxrates` | **No** | Workday. Blocks every currency conversion. Land it in Postgres or pull from the Bank of Canada valet API. |
+
+Only the last two need a decision beyond writing SQL.
 
 ## Running it
 

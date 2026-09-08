@@ -31,7 +31,7 @@ with orders_in_contract as (
         count(distinct orderguid)                          as oic,
         chargescost_usd / count(distinct orderguid)        as contractcostusd,
         chargescost_cad / count(distinct orderguid)        as contractcostcad
-    from {{ source('bi_analytics', 'globalbrokerageanalysis') }}
+    from {{ source('pending', 'globalbrokerageanalysis') }}
     where orderguid is not null
     group by contractguid, chargescost_usd, chargescost_cad
 ),
@@ -86,10 +86,10 @@ brokerage_raw as (
         sum(c.contractcostusd)                             as ordercontractcostusd,
         sum(c.contractcostcad)                             as ordercontractcostcad
 
-    from {{ source('bi_analytics', 'globalbrokerageanalysis') }} gb
+    from {{ source('pending', 'globalbrokerageanalysis') }} gb
     left join orders_in_contract c on c.contractguid = gb.contractguid
     left join has_trailer         ht on ht.orderguid = gb.orderguid
-    left join {{ source('bi_analytics', 'ordercartaportelifecycle') }} occp
+    left join {{ source('pending', 'ordercartaportelifecycle') }} occp
            on occp.orderguid = gb.orderguid
     left join {{ ref('int_fx_rates_daily') }} fx
            -- NOTE: the original falls back to CURRENT_DATE here too.

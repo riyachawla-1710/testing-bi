@@ -36,7 +36,7 @@ select
     percentile_cont(0.5) within group (order by frt + fsc)                    as avg_revenue,
     percentile_cont(0.5) within group (order by frt)                          as avg_frt,
     percentile_cont(0.5) within group (order by fsc)                          as avg_fsc
-from {{ source('bi_analytics', 'orderlanerevenuemapping') }}
+from {{ source('pending', 'orderlanerevenuemapping') }}
 where delivereddate >= {{ dbt.dateadd('month', -3, 'current_date') }}
 group by od_countrylane_distinct, order_direction, currency,
          case when distancetype in ('VERY LONG', 'LONG') then 'LONG' else distancetype end

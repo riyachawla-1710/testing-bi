@@ -46,7 +46,7 @@ boc_daily as (
         1 / "USD/CAD"           as usdrate,
         1 / "MXN/CAD"           as mxnrate,
         'BOC'                   as forexsource
-    from {{ source('workdaybi', 'bocdailyfxrates') }}
+    from {{ source('fx', 'bocdailyfxrates') }}
     where "MXN/CAD" is not null or "USD/CAD" is not null
 
     union all
@@ -56,7 +56,7 @@ boc_daily as (
         1.00,
         "USD/CAD" / "MXN/CAD",
         'BOC'
-    from {{ source('workdaybi', 'bocdailyfxrates') }}
+    from {{ source('fx', 'bocdailyfxrates') }}
     where "MXN/CAD" is not null or "USD/CAD" is not null
 
     union all
@@ -66,7 +66,7 @@ boc_daily as (
         "MXN/CAD" / "USD/CAD",
         1.00,
         'BOC'
-    from {{ source('workdaybi', 'bocdailyfxrates') }}
+    from {{ source('fx', 'bocdailyfxrates') }}
     where "MXN/CAD" is not null or "USD/CAD" is not null
 ),
 

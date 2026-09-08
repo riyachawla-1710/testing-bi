@@ -32,7 +32,7 @@ with agg as (
         percentile_cont(0.5) within group (order by fsc)       as avg_fsc,
         percentile_cont(0.5) within group (order by frt)       as avg_frt,
         count(*)                                              as n
-    from {{ source('bi_analytics', 'orderlanerevenuemapping') }}
+    from {{ source('pending', 'orderlanerevenuemapping') }}
     where delivereddate >= {{ dbt.dateadd('month', -3, 'current_date') }}
     group by od_lane, currency
 ),

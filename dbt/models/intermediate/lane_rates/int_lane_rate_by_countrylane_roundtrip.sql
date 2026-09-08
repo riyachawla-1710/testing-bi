@@ -37,7 +37,7 @@ select
     avg(frt)                                                                    as avg_frt,
     avg(fsc)                                                                    as avg_fsc,
     countriescount
-from {{ source('bi_analytics', 'orderlanerevenuemapping') }}
+from {{ source('pending', 'orderlanerevenuemapping') }}
 where delivereddate >= {{ dbt.dateadd('month', -3, 'current_date') }}
   and (roundtrip_check = true or order_direction = 'RT')
   and probillcount > 1

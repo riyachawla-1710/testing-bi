@@ -39,7 +39,7 @@ with agg as (
         avg(frt)                                                                 as avg_frt,
         avg(fsc)                                                                 as avg_fsc,
         count(*)                                                                 as n
-    from {{ source('bi_analytics', 'orderlanerevenuemapping') }}
+    from {{ source('pending', 'orderlanerevenuemapping') }}
     where delivereddate >= {{ dbt.dateadd('month', -6, 'current_date') }}
       and od_statelane <> od_reverse_statelane
       and total_distance > 50

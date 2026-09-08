@@ -36,7 +36,7 @@ with agg as (
         avg(frt)                          as avg_frt,
         avg(fsc)                          as avg_fsc,
         count(*)                          as n
-    from {{ source('bi_analytics', 'orderlanerevenuemapping') }}
+    from {{ source('pending', 'orderlanerevenuemapping') }}
     where delivereddate >= {{ dbt.dateadd('month', -3, 'current_date') }}
     group by currency, distancetype, direction
 ),

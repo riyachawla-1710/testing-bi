@@ -35,7 +35,7 @@ with base as (
         percentile_cont(0.5) within group (order by fsc)                as avg_fsc,
         percentile_cont(0.5) within group (order by frt)                as avg_frt,
         max(delivereddate) >= {{ dbt.dateadd('month', -3, 'current_date') }} as is_recent
-    from {{ source('bi_analytics', 'orderlanerevenuemapping') }}
+    from {{ source('pending', 'orderlanerevenuemapping') }}
     where delivereddate >= {{ dbt.dateadd('month', -6, 'current_date') }}
     group by customer, od_lane, currency
 ),

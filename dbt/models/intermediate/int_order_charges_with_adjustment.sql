@@ -82,9 +82,9 @@ with base as (
     from {{ ref('int_order_charges') }} oc
     left join {{ ref('int_charge_adjustments') }} a on a.orderguid = oc.orderguid
     left join {{ ref('int_manual_charges') }}     m on m.orderguid = oc.orderguid
-    left join {{ source('bi_analytics', 'labatt_orderrevenue') }} lb
+    left join {{ source('pending', 'labatt_orderrevenue') }} lb
            on lb.orderguid = oc.orderguid
-    left join {{ source('bi_analytics', 'orderextracharges_vw') }} oec
+    left join {{ source('pending', 'orderextracharges_vw') }} oec
            on oec.orderguid = oc.orderguid
     where lb.orderguid is null
 
@@ -124,7 +124,7 @@ labatt_override as (
         true                                     as manualflag,
         false                                    as manualadjustmentflag
     from {{ ref('int_order_charges') }} oc
-    join {{ source('bi_analytics', 'labatt_orderrevenue') }} lb
+    join {{ source('pending', 'labatt_orderrevenue') }} lb
       on lb.orderguid = oc.orderguid
 
 )

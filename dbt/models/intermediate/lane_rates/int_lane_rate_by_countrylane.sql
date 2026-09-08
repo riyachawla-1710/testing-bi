@@ -40,7 +40,7 @@ with agg as (
         avg(totalcharges)                                                          as avg_revenue,
         avg(frt)                                                                   as avg_frt,
         avg(fsc)                                                                   as avg_fsc
-    from {{ source('bi_analytics', 'orderlanerevenuemapping') }}
+    from {{ source('pending', 'orderlanerevenuemapping') }}
     where delivereddate >= {{ dbt.dateadd('month', -3, 'current_date') }}
     group by od_countrylane, currency, distancetype, direction_ns
 ),

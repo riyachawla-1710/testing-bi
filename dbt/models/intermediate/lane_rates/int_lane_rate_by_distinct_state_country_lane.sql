@@ -36,7 +36,7 @@ select
     avg(frt + fsc)                    as avg_revenue,
     avg(frt)                          as avg_frt,
     avg(fsc)                          as avg_fsc
-from {{ source('bi_analytics', 'orderlanerevenuemapping') }}
+from {{ source('pending', 'orderlanerevenuemapping') }}
 where delivereddate >= {{ dbt.dateadd('month', -3, 'current_date') }}
 group by od_statelane_distinct, od_countrylane_distinct, order_direction,
          currency, distancetype

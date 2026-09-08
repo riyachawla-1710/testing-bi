@@ -4,6 +4,7 @@ config-version: 2
 profile: 'charger_bi'
 
 model-paths: ["models"]
+seed-paths: ["seeds"]
 macro-paths: ["macros"]
 target-path: "target"
 clean-targets: ["target", "dbt_packages"]
@@ -41,3 +42,7 @@ models:
     marts:
       +materialized: table
       +schema: marts
+
+seeds:
+  charger_bi:
+    +schema: reference
