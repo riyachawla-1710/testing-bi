@@ -1,0 +1,33 @@
+# Powers "Revenue Execution Analysis: Customer".
+# The Asset / Brokerage split plus brokerage margin.
+views:
+  - name: execution
+    description: >
+      Asset vs Brokerage execution, with brokerage cost, gross profit and
+      margin status. Cost measures are excluded for the sales_rep role by the
+      access policy on the underlying cube.
+    cubes:
+      - join_path: order_revenue
+        includes:
+          - customer
+          - sales_rep
+          - business_unit
+          - category
+          - spot_flag
+          - revenue_source
+          - pickup_state
+          - pickup_country
+          - delivery_state
+          - delivery_country
+          - delivered_date
+          - order_count
+          - revenue_incl_fsc_usd
+          - brokerage_revenue_usd
+          - brokerage_gp_usd
+          - brokerage_gp_pct
+          - margin_status
+          - carrier_cost_usd
+          - transfer_cost_usd
+          - trailer_cost_usd
+          - ts_leg_cost_usd
+          - total_order_cost_usd

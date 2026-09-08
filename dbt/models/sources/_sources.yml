@@ -1,0 +1,102 @@
+version: 2
+
+sources:
+
+  # ===========================================================================
+  # CHARGERFLEET - the operational Postgres data, replicated into Snowflake.
+  # These are the real base tables. When you move off Snowflake, these become
+  # your Postgres schemas directly (probillsvc, invoicesvc, customersvc, ...).
+  # ===========================================================================
+  - name: probillsvc
+    database: CHARGERFLEET
+    schema: PROBILLSVC
+    description: Order and probill service. Postgres-derived.
+    tables:
+      - name: order
+        identifier: '"ORDER"'   # reserved word - quoted in Snowflake AND Postgres
+        description: One row per order. isrowdeleted = 0 for live rows.
+      - name: orderstatus
+      - name: ordercharge
+      - name: orderchargetype
+        description: Classifies a charge as Freight Rate / Fuel Surcharge / Extra Charge.
+      - name: orderuser
+        description: Maps orders to users by roleid (sales rep, CSR, account manager...).
+      - name: salesrep
+      - name: probill
+      - name: taxcodes
+      - name: taxitems
+
+  - name: invoicesvc
+    database: CHARGERFLEET
+    schema: INVOICESVC
+    description: Invoicing service. Postgres-derived.
+    tables:
+      - name: invoice
+      - name: invoicecharge
+      - name: invoiceadjustment
+      - name: invoiceorderrel
+      - name: currency
+        description: Currency short codes - C = CAD, U = USD, P = MXN.
+
+  - name: customersvc
+    database: CHARGERFLEET
+    schema: CUSTOMERSVC
+    tables:
+      - name: customer
+
+  - name: usersvc
+    database: CHARGERFLEET
+    schema: USERSVC
+    tables:
+      - name: user
+        identifier: '"USER"'    # reserved word
+
+  # ===========================================================================
+  # NOT Postgres. These are the reason Snowflake cannot simply be deleted.
+  # Each one needs a decision about where it lands post-migration.
+  # ===========================================================================
+  - name: workdaybi
+    database: WORKDAYBI
+    schema: ANALYTICS
+    description: >
+      Workday-sourced. NOT in Postgres. Blocks the FX conversion, and therefore
+      blocks every CAD/USD number on the revenue dashboard.
+    tables:
+      - name: bocdailyfxrates
+        description: >
+          Bank of Canada daily rates. Columns "USD/CAD" and "MXN/CAD" are quoted
+          because of the slash. Small table - easiest fix is to land it in
+          Postgres, or pull it from the Bank of Canada valet API directly.
+
+  # ===========================================================================
+  # BI.ANALYTICS objects this port depends on but does NOT yet reproduce.
+  # Declared as sources so the DAG is honest about the boundary.
+  # ===========================================================================
+  - name: bi_analytics
+    database: BI
+    schema: ANALYTICS
+    description: Existing Snowflake analytics layer. Each table below is a separate port.
+    tables:
+      - name: opd_miles
+        description: >
+          TABLE (1,114,454 rows), materialised from OPD_MILES_VW.
+          Supplies order geography, lane and spot status.
+          TODO: port OPD_MILES_VW (14,918 chars) - separate scope.
+      - name: predicted_revenue_bs
+        description: >
+          TABLE (1,115,472 rows). Predicted revenue for un-invoiced orders,
+          derived from the AVG_REVENUE_BY_* lane models.
+          TODO: port PREDICTED_REVENUE_BS_VW (11,341 chars) - separate scope.
+      - name: salesreportaccess
+        description: >
+          TABLE (59 rows). Sales rep -> business unit mapping. This is the table
+          that should drive row-level security in Cube, replacing the open
+          BUSINESSUNITCODE filter in Tableau.
+      - name: labatt_orderrevenue
+        description: Manual Labatt revenue override. Drives the UNION ALL branch of the charges view.
+      - name: orderextracharges_vw
+        description: Extra-charge detail strings. TODO port (5,375 chars).
+      - name: globalbrokerageanalysis
+        description: Feeds the brokerage P&L. TODO port (17,596 chars) - large.
+      - name: ordercartaportelifecycle
+        description: Supplies TS match rates (inbound/outbound) to the brokerage P&L.

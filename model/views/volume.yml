@@ -1,0 +1,23 @@
+# Powers the "Volume Performance Analysis" dashboard.
+# Note the extra city-level geography filters this dashboard has and the
+# revenue dashboards do not.
+views:
+  - name: volume
+    description: Order counts by customer, lane and delivery month.
+    cubes:
+      - join_path: order_revenue
+        includes:
+          - customer
+          - sales_rep
+          - business_unit
+          - spot_flag
+          - pickup_city
+          - pickup_state
+          - pickup_country
+          - delivery_city
+          - delivery_state
+          - delivery_country
+          - delivered_date
+          - delivered_year
+          - delivered_month_of_year
+          - order_count

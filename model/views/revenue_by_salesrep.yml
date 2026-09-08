@@ -1,0 +1,22 @@
+# Powers "Revenue Execution Analysis: SalesRep".
+# Same content as revenue_by_customer - in Tableau this required ten duplicated
+# worksheets; here it is one view with a different row dimension.
+views:
+  - name: revenue_by_salesrep
+    description: Revenue and volume pivoted to sales rep rather than customer.
+    cubes:
+      - join_path: order_revenue
+        includes:
+          - sales_rep
+          - customer
+          - business_unit
+          - spot_flag
+          - revenue_source
+          - category
+          - delivered_date
+          - delivered_year
+          - delivered_month_of_year
+          - order_count
+          - revenue_fsc_only_usd
+          - revenue_incl_fsc_usd
+          - revenue_ex_fsc_usd

@@ -1,0 +1,68 @@
+version: 2
+
+models:
+  - name: int_fx_rates_daily
+    description: >
+      Port of BOCDAILYFXRATES_VW. Dense daily FX calendar per currency from
+      2017-01-03, forward-filling the last known rate over weekends and gaps.
+      Reads WORKDAYBI - the one non-Postgres dependency in this chain.
+    columns:
+      - name: calendardate
+        data_type: date
+      - name: sourcecurrencycode
+        description: C = CAD, U = USD, P = MXN.
+        data_type: text
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [calendardate, sourcecurrencycode]
+
+  - name: int_order_users
+    description: Port of the ORDERUSERS CTE. Pivots order-user rows into one column per role.
+    columns:
+      - name: orderguid
+        data_type: text
+        tests: [unique, not_null]
+
+  - name: int_charge_adjustments
+    description: Port of the ADJUSTMENT CTE. Billable invoice adjustments split into FRT/FSC/EXTRA.
+    columns:
+      - name: orderguid
+        data_type: text
+
+  - name: int_manual_charges
+    description: Port of the ADJ_BY_INVOICE + RAW_MANUAL + MANUAL CTEs. Manual invoices by currency.
+    columns:
+      - name: orderguid
+        data_type: text
+        tests: [unique]
+
+  - name: int_order_charges
+    description: Port of the ORDERCHARGE CTE. Order-grain charges with two-item tax calculation.
+    columns:
+      - name: orderguid
+        data_type: text
+        tests: [unique, not_null]
+
+  - name: int_order_charges_with_adjustment
+    description: >
+      Full port of ORDERCHARGES_WITHADJUSTMENT_VW - the most-queried object in
+      the revenue chain (10,894 queries / 90 days, 11 users). Materialised as a
+      table. Contains the Labatt shuttle reclassification rule - see model header.
+    columns:
+      - name: orderguid
+        data_type: text
+        tests: [not_null]
+      - name: invoicestatus
+        data_type: text
+        tests:
+          - accepted_values:
+              values: ['INVOICED', 'NOT INVOICED']
+
+  - name: int_ts_hybrid_brokerage_pnl
+    description: >
+      Port of TSHYBRIDBROKERAGEPANDL_VW. Needed only by the Revenue Execution
+      dashboards. Depends on GLOBALBROKERAGEANALYSIS, which is not ported yet.
+      Contains hardcoded trailer/transfer cost rates - move to a seed.
+    columns:
+      - name: orderguid
+        data_type: text

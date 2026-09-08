@@ -1,0 +1,31 @@
+# Copy to ~/.dbt/profiles.yml and fill in.
+#
+# Two targets on purpose:
+#   snowflake  - run here FIRST, so every model can be diffed against the
+#                original view it replaces. This is how you prove the port.
+#   postgres   - the destination. Switch to this once snowflake ties out.
+#
+charger_bi:
+  target: snowflake
+  outputs:
+
+    snowflake:
+      type: snowflake
+      account: charger-prod
+      user: "{{ env_var('SNOWFLAKE_USER') }}"
+      password: "{{ env_var('SNOWFLAKE_PASSWORD') }}"
+      role: DATA_ENGINEER
+      warehouse: "{{ env_var('SNOWFLAKE_WAREHOUSE') }}"
+      database: BI
+      schema: DBT_PORT
+      threads: 4
+
+    postgres:
+      type: postgres
+      host: "{{ env_var('PG_HOST') }}"          # AlloyDB read pool for reads;
+      user: "{{ env_var('PG_USER') }}"          # dbt WRITES, so this target needs
+      password: "{{ env_var('PG_PASSWORD') }}"  # a writable instance, not the replica
+      port: 5432
+      dbname: "{{ env_var('PG_DATABASE') }}"
+      schema: reporting
+      threads: 4
