@@ -1,5 +1,11 @@
 # Copy to ~/.dbt/profiles.yml and fill in.
 #
+# PG_DATABASE must be the ANALYTICS database (alloydb_bi_dev_01), NOT a service
+# database and NOT `postgres`. Each microservice owns its own AlloyDB database
+# and PostgreSQL cannot join across them; the analytics database carries
+# postgres_fdw foreign tables for the eight services the models read. See
+# /fdw/README.md.
+#
 # PostgreSQL is the only target. The source definitions in
 # models/sources/_sources.yml are Postgres-shaped - plain schemas, no
 # CHARGERFLEET database prefix - so they do not resolve against Snowflake.
