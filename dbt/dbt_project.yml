@@ -45,4 +45,8 @@ models:
       +schema: intermediate
     marts:
       +materialized: table
-      +schema: marts
+      # NO +schema override on purpose. dbt concatenates the profile schema
+      # with any override, so `+schema: marts` would build
+      # reporting_marts.fct_order_revenue while the Cube model points at
+      # reporting.fct_order_revenue. Leaving it off puts the mart in the
+      # profile's schema, `reporting`, which is what Cube expects.
