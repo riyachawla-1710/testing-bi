@@ -86,6 +86,35 @@ fuel-surcharge revenue alone. Now: `revenue_fsc_only`, `revenue_incl_fsc`,
 `fsc_share_of_revenue` divide the sums. Computing per order and averaging gives
 a different, wrong number — the most common error when porting Tableau calcs.
 
+## Connections live in the Cube Cloud UI
+
+There is **no `cube.py`** in this repo, on purpose.
+
+A `driver_factory` in `cube.py` **overrides every data source configured in
+Cube Cloud → Settings → Data Sources**, and that caused two separate rounds of
+confusion:
+
+1. The original version hardcoded `{'type': 'duckdb'}` with Cube's tutorial
+   CSVs. DuckDB is in-memory, so it *always* connected with no network
+   involved — a data source always appeared in workbooks and queries always
+   "worked", answering from tutorial data. That is why `information_schema`
+   listed `orders` / `line_items` / `users`, and why `BI.ANALYTICS` could not
+   be found.
+2. Replacing it with a Postgres factory kept the override, so the UI stayed a
+   form that looked authoritative and changed nothing.
+
+A third trap, if you re-add the file: **an all-comments `cube.py` fails to
+load.** Cube requires the module to define a `config` attribute, so a file with
+no `from cube import config` produces
+`` `cube.py` configuration file must define the 'config' attribute `` on every
+request. If you don't need a config hook, delete the file rather than emptying
+it.
+
+Add one back only for something the UI genuinely cannot express — per-tenant
+connections, a custom pool size. Environment variables alone
+(`CUBEJS_DB_HOST` and friends) do not need one. A reference implementation is
+in git history at `85dae97`.
+
 ## Troubleshooting
 
 Logs are at **Overview → Resources & Logs → Cube API**. There is no top-level
@@ -93,10 +122,10 @@ Logs section.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-Data-source list shows grey loading bars forever; **Run** greyed out; logs say `Missing environment variable(s): PG_HOST, ...` | `PG_*` not set on the deployment | Set them in **Settings → Environment variables** |
+Every request logs `` `cube.py` ... must define the 'config' attribute `` | A `cube.py` exists but defines no `config` | Delete the file (see above), or add `from cube import config` |
 Same spinner, but logs say `ConnectionError: ... connect ETIMEDOUT 172.x.x.x:5432` | **Network, not config.** The variables are set and Cube is dialling, but the host is a private RFC1918 address Cube Cloud has no route to. `ETIMEDOUT` = packets go nowhere; a firewall reject gives `ECONNREFUSED`, bad DNS gives `ENOTFOUND`. | The database must become reachable — see below |
 Errors naming a data source other than `default` | A leftover data source in the UI | Delete it in **Settings → Data Sources** |
-`information_schema` returns `orders` / `line_items` / `users` | An old `cube.py` hardcoded a DuckDB driver, overriding UI connections | Fixed — check the deployment is on current `master` |
+`information_schema` returns `orders` / `line_items` / `users` | An old `cube.py` hardcoded a DuckDB driver, overriding UI connections | Fixed — `cube.py` no longer exists |
 Cube compile error `accessPolicy[0].role is not allowed` | Cube requires `group:` / `groups:`, not `role:` | Fixed; the policy block is commented out |
 
 The list spins rather than erroring because the TCP connect has to time out
