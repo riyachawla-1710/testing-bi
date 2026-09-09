@@ -19,7 +19,7 @@ with adj_by_invoice as (
         sum(totalcharge)              as adj_charge,
         sum(coalesce(taxamount, 0))   as adj_tax
     from {{ source('invoicesvc', 'invoiceadjustment') }}
-    where isrowdeleted = 0
+    where isrowdeleted = false
       and invoiceadjustmentreasonid = '{{ var("adjustment_reason_billable_id") }}'
     group by 1
 ),
@@ -42,16 +42,16 @@ raw_manual as (
     left join adj_by_invoice adj
            on adj.invoiceid = i.id
     left join {{ source('invoicesvc', 'invoiceorderrel') }} ior
-           on ior.invoiceid = i.id and ior.isrowdeleted = 0
+           on ior.invoiceid = i.id and ior.isrowdeleted = false
     left join {{ source('invoicesvc', 'currency') }} ic
            on ic.id = i.currencyid
     left join {{ source('probillsvc', 'order') }} o
            on o.id = ior.orderid
-          and o.isrowdeleted = 0
+          and o.isrowdeleted = false
           and o.orderstatusid <> '{{ var("order_status_cancelled_id") }}'
     where i.invoicetype = 'Invoice'
       and i.invoicestatusid <> '{{ var("invoice_status_void_id") }}'
-      and i.isrowdeleted = 0
+      and i.isrowdeleted = false
       and o.id is not null
     group by 1, 2, 3
 )

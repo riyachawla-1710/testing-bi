@@ -21,13 +21,13 @@ with tax_rate as (
         , 0) as combined_rate
     from {{ source('probillsvc', 'ordercharge') }} oc
     left join {{ source('probillsvc', 'taxcodes') }} tc
-           on tc.id = oc.taxcodeid and tc.isrowdeleted = 0
+           on tc.id = oc.taxcodeid and tc.isrowdeleted = false
     left join {{ source('probillsvc', 'taxitems') }} ti
-           on ti.id = tc.taxitemid and ti.isrowdeleted = 0
+           on ti.id = tc.taxitemid and ti.isrowdeleted = false
     left join {{ source('probillsvc', 'taxitems') }} ti2
            on tc.taxitem2id is not null
-          and ti2.id = tc.taxitem2id and ti2.isrowdeleted = 0
-    where oc.isrowdeleted = 0
+          and ti2.id = tc.taxitem2id and ti2.isrowdeleted = false
+    where oc.isrowdeleted = false
 )
 
 select
@@ -59,15 +59,15 @@ left join {{ source('probillsvc', 'salesrep') }}    sr on sr.id = o.salesrepfk
 left join {{ ref('int_order_users') }}              ou on ou.orderguid = o.id
 left join {{ source('invoicesvc', 'invoice') }}     i
        on i.id = o.invoiceid
-      and i.isrowdeleted = 0
+      and i.isrowdeleted = false
       and i.invoicestatusid <> '{{ var("invoice_status_void_id") }}'
 left join {{ source('customersvc', 'customer') }}   c  on c.id = o.customerid
-left join {{ source('probillsvc', 'ordercharge') }} oc on oc.orderid = o.id and oc.isrowdeleted = 0
+left join {{ source('probillsvc', 'ordercharge') }} oc on oc.orderid = o.id and oc.isrowdeleted = false
 left join {{ source('probillsvc', 'orderchargetype') }} oct
-       on oct.id = oc.orderchargetypeid and oct.isrowdeleted = 0
+       on oct.id = oc.orderchargetypeid and oct.isrowdeleted = false
 left join tax_rate tr on tr.orderchargeid = oc.id
 
-where o.isrowdeleted = 0
+where o.isrowdeleted = false
   and o.orderstatusid <> '{{ var("order_status_cancelled_id") }}'
   and o.externalid >= {{ var("min_order_number") }}
 

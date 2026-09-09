@@ -23,10 +23,10 @@ with pivoted as (
                  then upper(u.realname) end), 'NONE')               as csr
     from {{ source('probillsvc', 'order') }} o
     left join {{ source('probillsvc', 'orderuser') }} ou
-           on ou.orderid = o.id and ou.isrowdeleted = 0
+           on ou.orderid = o.id and ou.isrowdeleted = false
     left join {{ source('usersvc', 'user') }} u
            on u.id = ou.userid
-    where o.isrowdeleted = 0
+    where o.isrowdeleted = false
     group by o.id
 )
 

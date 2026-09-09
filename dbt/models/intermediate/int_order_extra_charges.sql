@@ -34,20 +34,20 @@ with raw_invoiceadjustment as (
     from {{ source('invoicesvc', 'invoiceadjustment') }} ia
     left join {{ source('invoicesvc', 'invoice') }} iv on ia.invoiceid = iv.id
     left join {{ source('invoicesvc', 'invoicecharge') }} ic
-           on ia.invoicechargeid = ic.id and ic.isrowdeleted = 0
+           on ia.invoicechargeid = ic.id and ic.isrowdeleted = false
     left join {{ source('probillsvc', 'orderchargetype') }} oct
-           on ic.orderchargetypeid = oct.id and oct.isrowdeleted = 0
+           on ic.orderchargetypeid = oct.id and oct.isrowdeleted = false
     left join {{ source('probillsvc', 'order') }} o
            on o.id = ia.orderid
-          and o.isrowdeleted = 0
+          and o.isrowdeleted = false
           and o.orderstatusid <> '{{ var("order_status_cancelled_id") }}'
     where ia.invoiceadjustmentreasonid = '{{ var("adjustment_reason_billable_id") }}'
       and ia.chargecode not in ('BAL DUE')
       and iv.invoicestatusid <> '{{ var("invoice_status_void_id") }}'
-      and iv.isrowdeleted = 0
+      and iv.isrowdeleted = false
       -- note: EXCLUDES real invoices here, unlike int_charge_adjustments
       and iv.invoicetype <> 'Invoice'
-      and ia.isrowdeleted = 0
+      and ia.isrowdeleted = false
 ),
 
 invoiceadjustment as (
@@ -82,11 +82,11 @@ raw_ordercharge as (
         sum(oc.totalcharges) as totalcharges
     from {{ source('probillsvc', 'order') }} o
     left join {{ source('probillsvc', 'ordercharge') }} oc
-           on oc.orderid = o.id and oc.isrowdeleted = 0
+           on oc.orderid = o.id and oc.isrowdeleted = false
     left join {{ source('probillsvc', 'orderchargetype') }} oct
            on oc.orderchargetypeid = oct.id
     where oct.chargetype = 'Extra Charge'
-      and o.isrowdeleted = 0
+      and o.isrowdeleted = false
       and o.orderstatusid <> '{{ var("order_status_cancelled_id") }}'
     group by oc.orderid, o.externalid, o.currency, oct.chargecode
 
@@ -132,15 +132,15 @@ raw_revenue_extracharges as (
         sum(iv.amount)  as totalcharges
     from {{ source('invoicesvc', 'invoice') }} i
     left join {{ source('invoicesvc', 'invoicecharge') }} iv
-           on iv.invoiceid = i.id and iv.isrowdeleted = 0
+           on iv.invoiceid = i.id and iv.isrowdeleted = false
     left join {{ source('invoicesvc', 'currency') }} ic on ic.id = i.currencyid
     left join {{ source('probillsvc', 'order') }} o
            on o.id = iv.orderid
-          and o.isrowdeleted = 0
+          and o.isrowdeleted = false
           and o.orderstatusid <> '{{ var("order_status_cancelled_id") }}'
     where i.invoicetype = 'Invoice'
       and i.invoicestatusid <> '{{ var("invoice_status_void_id") }}'
-      and i.isrowdeleted = 0
+      and i.isrowdeleted = false
       and o.id is not null
     group by o.id, o.externalid, ic.shortcode, iv.description
 
@@ -156,19 +156,19 @@ raw_revenue_extracharges as (
         sum(ia.totalcharge)
     from {{ source('invoicesvc', 'invoice') }} i
     left join {{ source('invoicesvc', 'invoicecharge') }} iv
-           on iv.invoiceid = i.id and iv.isrowdeleted = 0
+           on iv.invoiceid = i.id and iv.isrowdeleted = false
     left join {{ source('invoicesvc', 'invoiceadjustment') }} ia
-           on ia.invoiceid = i.id and ia.isrowdeleted = 0
+           on ia.invoiceid = i.id and ia.isrowdeleted = false
     left join {{ source('invoicesvc', 'invoiceorderrel') }} ior
-           on i.id = ior.invoiceid and ior.isrowdeleted = 0
+           on i.id = ior.invoiceid and ior.isrowdeleted = false
     left join {{ source('invoicesvc', 'currency') }} ic on ic.id = i.currencyid
     left join {{ source('probillsvc', 'order') }} o
            on o.id = ior.orderid
-          and o.isrowdeleted = 0
+          and o.isrowdeleted = false
           and o.orderstatusid <> '{{ var("order_status_cancelled_id") }}'
     where i.invoicetype = 'Invoice'
       and i.invoicestatusid <> '{{ var("invoice_status_void_id") }}'
-      and i.isrowdeleted = 0
+      and i.isrowdeleted = false
       and o.id is not null
     group by o.id, o.externalid, ic.shortcode, ia.description
 ),

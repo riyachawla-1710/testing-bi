@@ -64,7 +64,7 @@ with orders_base as (
     from {{ source('probillsvc', 'order') }} o
     left join {{ ref('int_opd_miles') }} opd on opd.orderguid = o.id
     left join {{ ref('int_tonu_orders') }} tb  on tb.orderid  = o.id
-    where o.isrowdeleted = 0
+    where o.isrowdeleted = false
       and o.orderstatusid <> '{{ var("order_status_cancelled_id") }}'
       and opd.customer = {{ labatt }}
       and opd.pickedupdate >= date '{{ var("labatt_start_date") }}'
@@ -116,7 +116,7 @@ manual as (
     join {{ source('invoicesvc', 'invoice') }} ia
       on ia.id = ob.invoiceid
      and ia.invoicetype in ('Single', 'Consolidated')
-     and ia.isrowdeleted = 0
+     and ia.isrowdeleted = false
      and ia.invoicestatusid <> '{{ var("invoice_status_void_id") }}'
     left join {{ source('invoicesvc', 'invoice') }} i
            on i.id = ob.invoiceid
@@ -144,7 +144,7 @@ totalmiles_manual as (
     join {{ source('invoicesvc', 'invoice') }} ia
       on ia.id = ob.invoiceid
      and ia.invoicetype in ('Single', 'Consolidated')
-     and ia.isrowdeleted = 0
+     and ia.isrowdeleted = false
      and ia.invoicestatusid <> '{{ var("invoice_status_void_id") }}'
     group by ob.order_side, ob.pickmonth
 ),
@@ -173,7 +173,7 @@ manual_consolidated as (
     join {{ source('invoicesvc', 'invoice') }} im
       on im.id = ob.invoiceid
      and im.invoicetype = 'ManualConsolidated'
-     and im.isrowdeleted = 0
+     and im.isrowdeleted = false
      and im.invoicestatusid <> '{{ var("invoice_status_void_id") }}'
     left join {{ source('invoicesvc', 'currency') }} c on c.id = im.currencyid
 ),
@@ -187,7 +187,7 @@ totalmiles_invoice as (
     join {{ source('invoicesvc', 'invoice') }} im
       on im.id = ob.invoiceid
      and im.invoicetype = 'ManualConsolidated'
-     and im.isrowdeleted = 0
+     and im.isrowdeleted = false
      and im.invoicestatusid <> '{{ var("invoice_status_void_id") }}'
     group by im.invoiceno
 )
@@ -213,7 +213,12 @@ select
           / nullif(tm.total_ordermiles_adjusted, 0), 2) as labatt_orderrevnotax,
     round(o.manual_totalmonth_tax   * o.adjusted_distance
           / nullif(tm.total_ordermiles_adjusted, 0), 2) as labatt_ordertax,
-    count(distinct o.orderguid) over (partition by o.pickmonth, o.side) as ordersinmonth,
+    -- PostgreSQL has no DISTINCT for window functions. This is the exact
+    -- equivalent of COUNT(DISTINCT o.orderguid) OVER (PARTITION BY ...):
+    -- dense_rank ascending + dense_rank descending - 1.
+    (dense_rank() over (partition by o.pickmonth, o.side order by o.orderguid)
+   + dense_rank() over (partition by o.pickmonth, o.side order by o.orderguid desc)
+   - 1)                                             as ordersinmonth,
     'MANUAL'                                        as source
 from manual o
 left join totalmiles_manual tm
@@ -242,7 +247,9 @@ select
           / nullif(tm.total_ordermiles_adjusted, 0), 2),
     round(o.manual_totalmonth_tax   * o.adjusted_distance
           / nullif(tm.total_ordermiles_adjusted, 0), 2),
-    count(distinct o.orderguid) over (partition by o.order_invoiceno),
+    (dense_rank() over (partition by o.order_invoiceno order by o.orderguid)
+   + dense_rank() over (partition by o.order_invoiceno order by o.orderguid desc)
+   - 1),
     'CONSOLIDATED MANUAL'
 from manual_consolidated o
 left join totalmiles_invoice tm

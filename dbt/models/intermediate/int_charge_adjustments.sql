@@ -30,18 +30,18 @@ with classified as (
     left join {{ source('invoicesvc', 'invoice') }} iv
            on ia.invoiceid = iv.id
     left join {{ source('invoicesvc', 'invoicecharge') }} ic
-           on ia.invoicechargeid = ic.id and ic.isrowdeleted = 0
+           on ia.invoicechargeid = ic.id and ic.isrowdeleted = false
     left join {{ source('probillsvc', 'orderchargetype') }} oct
-           on ic.orderchargetypeid = oct.id and oct.isrowdeleted = 0
+           on ic.orderchargetypeid = oct.id and oct.isrowdeleted = false
     left join {{ source('probillsvc', 'order') }} o
            on o.id = ia.orderid
-          and o.isrowdeleted = 0
+          and o.isrowdeleted = false
           and o.orderstatusid <> '{{ var("order_status_cancelled_id") }}'
     where ia.invoiceadjustmentreasonid = '{{ var("adjustment_reason_billable_id") }}'
       and ia.chargecode not in ('BAL DUE')
       and iv.invoicestatusid <> '{{ var("invoice_status_void_id") }}'
-      and iv.isrowdeleted = 0
-      and ia.isrowdeleted = 0
+      and iv.isrowdeleted = false
+      and ia.isrowdeleted = false
 )
 
 select

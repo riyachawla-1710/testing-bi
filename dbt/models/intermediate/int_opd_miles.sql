@@ -18,7 +18,7 @@
 --    `rows between unbounded preceding and unbounded following` on Postgres,
 --    or DELCITY/DELSTATE/DELCOUNTRY silently become the pickup values.
 --
--- 2. LISTAGG(DISTINCT x, sep) WITHIN GROUP (ORDER BY y). Postgres cannot do
+-- 2. string_agg(DISTINCT x, sep order by y). Postgres cannot do
 --    DISTINCT and ORDER BY on different expressions in string_agg. Pre-dedupe
 --    in a subquery, then string_agg(x, sep order by y).
 --
@@ -26,7 +26,7 @@
 --    NULL; Postgres ignores NULLs. The MINUTES calculation relies on that,
 --    so wrap each argument or the result changes.
 --
--- 4. Mechanical: BITAND(x,n) -> (x & n) · IFNULL -> coalesce ·
+-- 4. Mechanical: (x & n) -> (x & n) · IFNULL -> coalesce ·
 --    ARRAY_SIZE(ARRAY_AGG(DISTINCT x)) -> count(distinct x) ·
 --    UUID_STRING() -> gen_random_uuid() ·
 --    CONVERT_TIMEZONE('UTC', CURRENT_TIMESTAMP) -> current_timestamp at time zone 'UTC'
@@ -37,30 +37,55 @@
 -- Kept for fidelity. They are data fixes living in code - move to a seed.
 -- =============================================================================
 
-with orderdata as (
+-- Per-order aggregates. Snowflake computed these as COUNT(DISTINCT ...) OVER
+-- (PARTITION BY o.id); PostgreSQL does not implement DISTINCT for window
+-- functions, so they are grouped here over the same join graph and joined back.
+-- Same rows in, same values out.
+with order_probill_agg as (
+    select
+        o.id                                                      as orderguid,
+        min(pd.actualpickupdt1)                                   as min_actual_pickup,
+        max(pd.actualdeldt1)                                      as max_actual_del,
+        count(distinct pd.actualdeldt1)                           as actual_del_count,
+        count(distinct p.id)                                      as probillcount,
+        count(distinct tt.name)                                   as trailertype_count,
+        max(case when tt.name ilike '%REEFER%' then 1 else 0 end) as has_reefer
+
+    from {{ source('probillsvc', 'order') }} o
+    left join {{ source('probillsvc', 'probill') }} p
+           on o.id = p.orderid and p.isrowdeleted = false
+    left join {{ source('probillsvc', 'pickdeldates') }} pd
+           on pd.probillid = p.id and pd.isrowdeleted = false
+    left join {{ source('trailersvc', 'trailertype') }} tt on p.trailertypeid = tt.id
+    where o.isrowdeleted = false
+      and o.externalid >= {{ var("min_order_number") }}
+      and o.orderstatusid <> '{{ var("order_status_cancelled_id") }}'
+    group by o.id
+),
+
+orderdata as (
     select
         o.id                            as orderguid,
         o.externalid                    as orderno,
         cast(i.invoiceddate as date)    as orderinvoiceddate,
         case
             when o.id = '755A4644-DA61-4441-1ECE-08DCB60CD590' then 'SPOT'
-            when bitand(o.orderproperties, 2) = 2 then 'SPOT'
+            when (o.orderproperties & 2) = 2 then 'SPOT'
             else 'NOT SPOT'
         end                             as spot_status,
         c.legalbusinessname             as customer,
         o.orderdate,
-        coalesce(o.pickedupdate,
-                 min(pd.actualpickupdt1) over (partition by o.id)) as pickedupdate,
+        coalesce(o.pickedupdate, agg.min_actual_pickup) as pickedupdate,
+
+        -- delivered only once every probill has an actual delivery datetime
         coalesce(o.delivereddate,
-                 case when count(distinct pd.actualdeldt1) over (partition by o.id)
-                         = count(distinct p.id) over (partition by o.id)
-                      then max(pd.actualdeldt1) over (partition by o.id) end) as delivereddate,
+                 case when agg.actual_del_count = agg.probillcount
+                      then agg.max_actual_del end)       as delivereddate,
+
         p.id                            as probillid,
         case
-            when count(distinct tt.name) over (partition by o.id) > 1 then
-                case when max(case when tt.name ilike '%REEFER%' then 1 else 0 end)
-                          over (partition by o.id) = 1 then 'REEFER'
-                     else 'DRY-VAN' end
+            when agg.trailertype_count > 1
+                then case when agg.has_reefer = 1 then 'REEFER' else 'DRY-VAN' end
             else tt.name
         end                             as equipmenttype,
         p.pickuplocationid,
@@ -69,19 +94,21 @@ with orderdata as (
         pd.pickupdt1                    as pickupetadate,
         coalesce(pd.actualdeldt1, pd.deldt1)       as deliveryeventdate,
         pd.deldt1                       as deliveryetadate,
-        count(distinct p.id) over (partition by o.id) as probillcount
+        agg.probillcount
+
     from {{ source('probillsvc', 'order') }} o
+    join order_probill_agg agg on agg.orderguid = o.id
     left join {{ source('invoicesvc', 'invoice') }} i
            on i.id = o.invoiceid
-          and i.isrowdeleted = 0
+          and i.isrowdeleted = false
           and i.invoicestatusid <> '{{ var("invoice_status_void_id") }}'
     left join {{ source('customersvc', 'customer') }} c on c.id = o.customerid
     left join {{ source('probillsvc', 'probill') }} p
-           on o.id = p.orderid and p.isrowdeleted = 0
+           on o.id = p.orderid and p.isrowdeleted = false
     left join {{ source('probillsvc', 'pickdeldates') }} pd
-           on pd.probillid = p.id and pd.isrowdeleted = 0
+           on pd.probillid = p.id and pd.isrowdeleted = false
     left join {{ source('trailersvc', 'trailertype') }} tt on p.trailertypeid = tt.id
-    where o.isrowdeleted = 0
+    where o.isrowdeleted = false
       and o.externalid >= {{ var("min_order_number") }}
       and o.orderstatusid <> '{{ var("order_status_cancelled_id") }}'
 ),
@@ -222,16 +249,16 @@ milescalculation as (
     -- mileage: try A->B, then B->A, then parent A->B, then parent B->A
     left join {{ source('addresssvc', 'traveltime') }} tt1
            on tt1.fromlocid = oe1.locationid and tt1.tolocid = oe2.locationid
-          and tt1.isrowdeleted = 0
+          and tt1.isrowdeleted = false
     left join {{ source('addresssvc', 'traveltime') }} tt2
            on tt2.fromlocid = oe2.locationid and tt2.tolocid = oe1.locationid
-          and tt2.isrowdeleted = 0 and tt1.miles is null
+          and tt2.isrowdeleted = false and tt1.miles is null
     left join {{ source('addresssvc', 'traveltime') }} ttp1
            on ttp1.fromlocid = oe1.parentlocationid and ttp1.tolocid = oe2.parentlocationid
-          and ttp1.isrowdeleted = 0 and tt2.miles is null
+          and ttp1.isrowdeleted = false and tt2.miles is null
     left join {{ source('addresssvc', 'traveltime') }} ttp2
            on ttp2.fromlocid = oe2.parentlocationid and ttp2.tolocid = oe1.parentlocationid
-          and ttp2.isrowdeleted = 0 and ttp1.miles is null
+          and ttp2.isrowdeleted = false and ttp1.miles is null
 )
 ,
 
@@ -239,8 +266,8 @@ milescalculation as (
 probillcountries as (
     select
         orderguid,
-        listagg(distinct state,   ', ') within group (order by state)   as distinctstates,
-        listagg(distinct country, ', ') within group (order by country) as distinctcountries,
+        string_agg(distinct state,   ', ' order by state)   as distinctstates,
+        string_agg(distinct country, ', ' order by country) as distinctcountries,
         count(distinct country)                                        as countriescount
     from (
         select distinct orderguid, from_country as country, from_state as state from milescalculation
@@ -259,7 +286,7 @@ miles_sum as (
         case when count(minutes) < count(*) then null else sum(minutes) end as etaminutes,
 
         -- compass bearing per leg, by the larger of the lat/lon deltas
-        listagg(distinct case
+        string_agg(distinct case
             when abs(to_lat - from_lat) >= abs(to_lon - from_lon)
                 then case when to_lat > from_lat then 'NB'
                           when to_lat < from_lat then 'SB' end
@@ -269,7 +296,7 @@ miles_sum as (
         end, ' & ')                                                    as direction,
 
         -- north/south only - what the lane rate tables are keyed on
-        listagg(distinct case
+        string_agg(distinct case
             when abs(to_lat - from_lat) >= abs(to_lon - from_lon)
                 then case when to_lat > from_lat then 'NB'
                           when to_lat < from_lat then 'SB' end
@@ -288,12 +315,11 @@ miles_sum as (
                               when to_lat < from_lat then 'SB' end
              end) = 2 then true else false end                         as roundtrip_check,
 
-        listagg(from_city || ', ' || from_state || ' - ' || to_city || ', ' || to_state, ' & ')
-            within group (order by rn)                                 as od_lane,
-        listagg(from_state   || ' - ' || to_state,   ' & ') within group (order by rn) as od_statelane,
-        listagg(from_country || ' - ' || to_country, ' & ') within group (order by rn) as od_countrylane,
-        listagg(to_country   || ' - ' || from_country, ' & ') within group (order by rn)      as od_reverse_countrylane,
-        listagg(to_state     || ' - ' || from_state,   ' & ') within group (order by rn desc) as od_reverse_statelane
+        string_agg(from_city || ', ' || from_state || ' - ' || to_city || ', ' || to_state, ' & ' order by rn)                                 as od_lane,
+        string_agg(from_state   || ' - ' || to_state,   ' & ' order by rn) as od_statelane,
+        string_agg(from_country || ' - ' || to_country, ' & ' order by rn) as od_countrylane,
+        string_agg(to_country   || ' - ' || from_country, ' & ' order by rn)      as od_reverse_countrylane,
+        string_agg(to_state     || ' - ' || from_state,   ' & ' order by rn desc) as od_reverse_statelane
     from milescalculation
     group by orderguid
 ),

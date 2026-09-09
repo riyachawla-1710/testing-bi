@@ -26,7 +26,7 @@ sources:
       identifier: true
     tables:
       - name: order
-        description: One row per order. isrowdeleted = 0 for live rows. Reserved word - quoted.
+        description: One row per order. isrowdeleted = false for live rows. Reserved word - quoted.
       - name: orderstatus
         quoting: { identifier: false }
       - name: ordercharge
