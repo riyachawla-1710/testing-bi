@@ -12,18 +12,46 @@
 # cube ever needs a `data_source:` other than `default`, that is a bug - it
 # means something is being built on a source we are removing.
 #
-# Every cube either declares `data_source: default` or declares nothing, and
-# both land here.
+# -----------------------------------------------------------------------------
+# SYMPTOM -> CAUSE, so nobody loses an afternoon to this again
+#
+# "In a workbook, the Source SQL Query data-source list shows grey loading
+#  bars forever and the Run button stays greyed out."
+#
+#     -> The PG_* environment variables are not set on this deployment.
+#
+# An earlier version of this file read them as os.environ['PG_HOST'], which
+# raises a bare KeyError inside driver_factory. Cube cannot resolve the data
+# source, so the list never populates and there is no visible error anywhere
+# in the workbook UI - it just spins.
+#
+# This version checks up front and raises a message that names the missing
+# variables, which shows up in Deployment -> Logs. Set them in
+# Cube Cloud -> Settings -> Environment variables (see .env.example).
 # -----------------------------------------------------------------------------
 
 import os
 from cube import config
 
+# Variables with no safe default. PG_PORT, PG_SSL and PG_MAX_POOL are optional.
+_REQUIRED = ('PG_HOST', 'PG_DATABASE', 'PG_USER', 'PG_PASSWORD')
+
 
 @config('driver_factory')
 def driver_factory(ctx: dict) -> dict:
-    # AlloyDB read pool. Reads only - pre-aggregations materialise into
-    # Cube Store, never back into Postgres, so a read replica is fine.
+    missing = [name for name in _REQUIRED if not os.getenv(name)]
+    if missing:
+        raise RuntimeError(
+            'Cube cannot connect to PostgreSQL. Missing environment '
+            'variable(s): ' + ', '.join(missing) + '. '
+            'Set them in Cube Cloud -> Settings -> Environment variables; '
+            '.env.example in this repo lists all of them. '
+            'While they are unset, a workbook shows grey loading bars where '
+            'the data source list should be and the Run button stays disabled.'
+        )
+
+    # AlloyDB. Reads only - pre-aggregations materialise into Cube Store,
+    # never back into Postgres, so a read replica is fine.
     return {
         'type': 'postgres',
         'host': os.environ['PG_HOST'],
@@ -33,6 +61,6 @@ def driver_factory(ctx: dict) -> dict:
         'password': os.environ['PG_PASSWORD'],
         'ssl': os.getenv('PG_SSL', 'true').lower() == 'true',
         # Keep the pool small so pre-aggregation builds cannot crowd out the
-        # application traffic already using the read pool (~45% mean CPU).
+        # application traffic already using the instance (~45% mean CPU).
         'maxPoolSize': int(os.getenv('PG_MAX_POOL', '8')),
     }

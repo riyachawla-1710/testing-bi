@@ -86,6 +86,19 @@ fuel-surcharge revenue alone. Now: `revenue_fsc_only`, `revenue_incl_fsc`,
 `fsc_share_of_revenue` divide the sums. Computing per order and averaging gives
 a different, wrong number — the most common error when porting Tableau calcs.
 
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+Workbook's **Source SQL Query** data-source list shows grey loading bars forever; **Run** is greyed out | The `PG_*` environment variables are not set on the deployment. `driver_factory` cannot build a connection, so the data source never resolves — and the workbook UI shows no error, it just spins. | Set them in **Settings → Environment variables**, then check **Deployment → Logs** for the message naming any still-missing variable. |
+`information_schema` returns `orders` / `line_items` / `users`, or `duckdb_databases()` works | An old `cube.py` hardcoded a DuckDB driver, which overrides UI connections | Already fixed — make sure the deployment is on the current `master` |
+Cube compile error `accessPolicy[0].role is not allowed` | Cube requires `group:` / `groups:`, not `role:` | Already fixed; the policy block is commented out |
+
+`cube.py` raises a named error for missing variables rather than a bare
+`KeyError`, so the logs tell you which one. It deliberately does **not** fall
+back to any other data source — a silent fallback is what caused the DuckDB
+problem in the first place.
+
 ## Building the model on PostgreSQL only
 
 Cube cannot invent a model. It reads a **catalog** — schemas, tables, columns —
