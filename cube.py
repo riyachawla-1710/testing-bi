@@ -15,19 +15,31 @@
 # -----------------------------------------------------------------------------
 # SYMPTOM -> CAUSE, so nobody loses an afternoon to this again
 #
-# "In a workbook, the Source SQL Query data-source list shows grey loading
-#  bars forever and the Run button stays greyed out."
+# 1. "The Source SQL Query data-source list shows grey loading bars forever
+#     and the Run button stays greyed out."
 #
-#     -> The PG_* environment variables are not set on this deployment.
+#    Look in Overview -> Resources & Logs -> Cube API. Two possibilities:
 #
-# An earlier version of this file read them as os.environ['PG_HOST'], which
-# raises a bare KeyError inside driver_factory. Cube cannot resolve the data
-# source, so the list never populates and there is no visible error anywhere
-# in the workbook UI - it just spins.
+#    a) "Missing environment variable(s): PG_HOST, ..." - the PG_* variables
+#       are not set. Set them in Settings -> Environment variables.
 #
-# This version checks up front and raises a message that names the missing
-# variables, which shows up in Deployment -> Logs. Set them in
-# Cube Cloud -> Settings -> Environment variables (see .env.example).
+#    b) "ConnectionError: ... connect ETIMEDOUT <private ip>:5432" - the
+#       variables ARE set and Cube is reaching the network, but the host is a
+#       private RFC1918 address (10.x, 172.16-31.x, 192.168.x) that Cube Cloud
+#       has no route to. ETIMEDOUT means the packets go nowhere - a firewall
+#       rejecting would give ECONNREFUSED, bad DNS would give ENOTFOUND.
+#       This is a NETWORK problem, not a config problem. The database has to
+#       become reachable: an AlloyDB inbound public IP with Cube Cloud's
+#       egress addresses in the authorized-networks allowlist, or Enterprise
+#       plan + Dedicated Infrastructure for Private Service Connect.
+#
+#    The list spins rather than erroring because the TCP connect has to time
+#    out first, and the UI polls /v1/data-sources while that happens.
+#
+# 2. Errors naming a data source other than `default` (e.g. `snowflake_testing`)
+#    mean a leftover data source is still configured in the Cube Cloud UI.
+#    driver_factory below refuses to serve it. Delete it in
+#    Settings -> Data Sources; it only doubles the noise in the logs.
 # -----------------------------------------------------------------------------
 
 import os
@@ -39,19 +51,33 @@ _REQUIRED = ('PG_HOST', 'PG_DATABASE', 'PG_USER', 'PG_PASSWORD')
 
 @config('driver_factory')
 def driver_factory(ctx: dict) -> dict:
+    data_source = ctx.get('dataSource', 'default')
+
+    # Exactly one data source is expected. Returning the Postgres config for
+    # any name would hand these credentials to whatever leftover data source
+    # someone left in the UI, and its failures would look like ours.
+    if data_source != 'default':
+        raise RuntimeError(
+            f"Unexpected data source '{data_source}'. This project has one "
+            "data source, `default`, on PostgreSQL. Delete the extra data "
+            "source in Cube Cloud -> Settings -> Data Sources, or add a "
+            "branch here if it is genuinely needed."
+        )
+
     missing = [name for name in _REQUIRED if not os.getenv(name)]
     if missing:
         raise RuntimeError(
             'Cube cannot connect to PostgreSQL. Missing environment '
             'variable(s): ' + ', '.join(missing) + '. '
             'Set them in Cube Cloud -> Settings -> Environment variables; '
-            '.env.example in this repo lists all of them. '
-            'While they are unset, a workbook shows grey loading bars where '
-            'the data source list should be and the Run button stays disabled.'
+            '.env.example in this repo lists all of them.'
         )
 
     # AlloyDB. Reads only - pre-aggregations materialise into Cube Store,
     # never back into Postgres, so a read replica is fine.
+    #
+    # NOTE: PG_HOST must be an address Cube Cloud can actually route to. A
+    # private IP times out - see (1b) in the header.
     return {
         'type': 'postgres',
         'host': os.environ['PG_HOST'],

@@ -88,16 +88,38 @@ a different, wrong number — the most common error when porting Tableau calcs.
 
 ## Troubleshooting
 
+Logs are at **Overview → Resources & Logs → Cube API**. There is no top-level
+Logs section.
+
 | Symptom | Cause | Fix |
 |---|---|---|
-Workbook's **Source SQL Query** data-source list shows grey loading bars forever; **Run** is greyed out | The `PG_*` environment variables are not set on the deployment. `driver_factory` cannot build a connection, so the data source never resolves — and the workbook UI shows no error, it just spins. | Set them in **Settings → Environment variables**, then check **Deployment → Logs** for the message naming any still-missing variable. |
-`information_schema` returns `orders` / `line_items` / `users`, or `duckdb_databases()` works | An old `cube.py` hardcoded a DuckDB driver, which overrides UI connections | Already fixed — make sure the deployment is on the current `master` |
-Cube compile error `accessPolicy[0].role is not allowed` | Cube requires `group:` / `groups:`, not `role:` | Already fixed; the policy block is commented out |
+Data-source list shows grey loading bars forever; **Run** greyed out; logs say `Missing environment variable(s): PG_HOST, ...` | `PG_*` not set on the deployment | Set them in **Settings → Environment variables** |
+Same spinner, but logs say `ConnectionError: ... connect ETIMEDOUT 172.x.x.x:5432` | **Network, not config.** The variables are set and Cube is dialling, but the host is a private RFC1918 address Cube Cloud has no route to. `ETIMEDOUT` = packets go nowhere; a firewall reject gives `ECONNREFUSED`, bad DNS gives `ENOTFOUND`. | The database must become reachable — see below |
+Errors naming a data source other than `default` | A leftover data source in the UI | Delete it in **Settings → Data Sources** |
+`information_schema` returns `orders` / `line_items` / `users` | An old `cube.py` hardcoded a DuckDB driver, overriding UI connections | Fixed — check the deployment is on current `master` |
+Cube compile error `accessPolicy[0].role is not allowed` | Cube requires `group:` / `groups:`, not `role:` | Fixed; the policy block is commented out |
 
-`cube.py` raises a named error for missing variables rather than a bare
-`KeyError`, so the logs tell you which one. It deliberately does **not** fall
-back to any other data source — a silent fallback is what caused the DuckDB
-problem in the first place.
+The list spins rather than erroring because the TCP connect has to time out
+first while the UI polls `/v1/data-sources`.
+
+### Reaching a private-IP database from Cube Cloud
+
+Cube's Postgres driver has **no SSH tunnel or bastion option**, so the database
+itself has to be reachable. Three ways, cheapest first:
+
+1. **AlloyDB inbound public IP + authorized networks.** One `gcloud` command,
+   SSL enforced, allowlist restricted to Cube Cloud's egress addresses — which
+   you have to ask Cube support for, as they aren't published. Confirm whether
+   this can go on a read pool; if it's primary-only that is fine, because
+   pre-aggregations mean Postgres sees roughly one query per refresh.
+2. **Enterprise plan + Dedicated Infrastructure add-on** → Private Service
+   Connect or VPC peering. Correct long-term, but a commercial change.
+3. **Self-host Cube Core inside the VPC.** Reaches the private IP directly, but
+   gives up Cube Cloud's workbooks and dashboards — which is the reason for
+   choosing Cube here in the first place.
+
+Cube reads exactly **one table**, `reporting.fct_order_revenue`. That is the
+whole surface that needs to be reachable — not AlloyDB, not 23 tables.
 
 ## Building the model on PostgreSQL only
 
