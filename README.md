@@ -102,21 +102,40 @@ Cube compile error `accessPolicy[0].role is not allowed` | Cube requires `group:
 The list spins rather than erroring because the TCP connect has to time out
 first while the UI polls `/v1/data-sources`.
 
-### Reaching a private-IP database from Cube Cloud
+### Reaching the database from Cube Cloud
 
-Cube's Postgres driver has **no SSH tunnel or bastion option**, so the database
-itself has to be reachable. Three ways, cheapest first:
+The instance now has **two endpoints**:
 
-1. **AlloyDB inbound public IP + authorized networks.** One `gcloud` command,
-   SSL enforced, allowlist restricted to Cube Cloud's egress addresses — which
-   you have to ask Cube support for, as they aren't published. Confirm whether
-   this can go on a read pool; if it's primary-only that is fine, because
-   pre-aggregations mean Postgres sees roughly one query per refresh.
-2. **Enterprise plan + Dedicated Infrastructure add-on** → Private Service
-   Connect or VPC peering. Correct long-term, but a commercial change.
-3. **Self-host Cube Core inside the VPC.** Reaches the private IP directly, but
-   gives up Cube Cloud's workbooks and dashboards — which is the reason for
-   choosing Cube here in the first place.
+| Endpoint | Address | Who uses it |
+|---|---|---|
+Private | `172.23.210.10` | the `postgres_fdw` foreign servers (database talking to itself), and anything inside the VPC |
+Public | `34.130.23.251` | Cube Cloud, laptops — anything outside the VPC |
+
+Point Cube Cloud at the **public** one. Enabling a public IP is necessary but
+**not sufficient**: AlloyDB also enforces an `--authorized-external-networks`
+allowlist, and Cube Cloud's egress addresses have to be in it.
+
+Cube does not publish those addresses, so ask their support: *"what IP
+addresses does my deployment make outbound database connections from, so I can
+allowlist them?"* Then:
+
+```bash
+gcloud alloydb instances update INSTANCE_ID \
+  --cluster=CLUSTER_ID --region=REGION_ID \
+  --authorized-external-networks=<existing ranges>,<Cube Cloud ranges>
+```
+
+SSL is enforced by default, which is why `PG_SSL=true`.
+
+**Testing this from a corporate laptop is misleading if the VPN is
+full-tunnel.** Check with `route -n get 1.1.1.1`: if public addresses route over
+a `utun*` interface, your traffic exits from the VPN's address, so a successful
+connection only proves the VPN's range is allowlisted — not that Cube Cloud's
+is. The honest test is to set the host in Cube Cloud and look at the logs.
+
+The other two options remain, if the allowlist route is refused:
+Enterprise plan + Dedicated Infrastructure for Private Service Connect, or
+self-hosting Cube Core inside the VPC (which forfeits workbooks and dashboards).
 
 Cube reads exactly **one table**, `reporting.fct_order_revenue`. That is the
 whole surface that needs to be reachable — not AlloyDB, not 23 tables.

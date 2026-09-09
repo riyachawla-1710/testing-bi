@@ -20,8 +20,13 @@
 
 create extension if not exists postgres_fdw;
 
--- The service databases live on this same AlloyDB instance, so the FDW server
--- host is the instance's own private IP.
+-- The service databases live on this same AlloyDB instance, and the foreign
+-- servers connect FROM INSIDE it - so this stays the PRIVATE address even
+-- though the instance now also has a public endpoint (34.130.23.251).
+-- Using the public IP here would hairpin out and back for no reason, and
+-- would make the whole federation depend on the authorized-networks
+-- allowlist. External clients (Cube Cloud, laptops) use the public IP; the
+-- database talking to itself does not.
 \set svc_host '172.23.210.10'
 \set svc_port '5432'
 

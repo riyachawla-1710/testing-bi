@@ -35,7 +35,13 @@ Used by the foreign servers, not by a person. `CONNECT` plus `SELECT` on the 23
 tables in `public` listed in `01_setup_fdw.sql`. Its credentials go into the
 `USER MAPPING` statements and are never stored in this repo.
 
-**4. Run `01_setup_fdw.sql`** as `alloydbsuperuser`, connected to
+**4. Public endpoint for Cube Cloud.** The instance has a public IP
+(`34.130.23.251`). Cube Cloud sits outside the VPC and needs it, plus its egress
+addresses added to `--authorized-external-networks`. This is separate from the
+FDW work below: the foreign servers use the **private** address, because the
+database is connecting to itself.
+
+**5. Run `01_setup_fdw.sql`** as `alloydbsuperuser`, connected to
 `alloydb_bi_dev_01`, after replacing the two `REPLACE_WITH_*` values.
 
 ## Scope — deliberately small
